@@ -2,7 +2,7 @@
 #include <algorithm>
 
 Camera::Camera(int width, int height)
-    : m_position(0.0f, 60.0f, 0.0f)
+    : m_position(2.0f, 2.0f, 2.0f)
     , m_worldUp(0.0f, 1.0f, 0.0f)
     , m_yaw(-90.0f)
     , m_pitch(-60.0f)
@@ -77,9 +77,14 @@ glm::mat4 Camera::getViewMatrix() const {
 }
 
 glm::mat4 Camera::getProjectionMatrix() const {
-    return glm::perspective(glm::radians(m_fov), 
-                           static_cast<float>(m_width) / static_cast<float>(m_height), 
-                           m_nearPlane, m_farPlane);
+    glm::mat4 proj = glm::perspective(glm::radians(m_fov),
+                                  float(m_width) / float(m_height),
+                                  m_nearPlane, m_farPlane);
+
+    // Flip Y for Vulkan (GLM has a helper)
+    proj[1][1] *= -1;
+
+    return proj;
 }
 
 void Camera::updateCameraVectors() {

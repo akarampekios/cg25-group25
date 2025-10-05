@@ -1,16 +1,21 @@
-#include "Application.h"
-#include "SimpleRenderer.h"
-#include "Camera.h"
-#include "Scene.h"
 #include <iostream>
 #include <chrono>
 #include <thread>
+
+#include "Application.h"
+// #include "SimpleRenderer.h"
+#include "Renderer.hpp"
+#include "Camera.h"
+// #include "Scene.h"
+
 
 Application::Application() 
     : m_window(nullptr)
     , m_running(false)
     , m_lastTime(0.0f)
     , m_deltaTime(0.0f) {
+  initWindow();
+  initVulkan();
 }
 
 Application::~Application() {
@@ -18,8 +23,8 @@ Application::~Application() {
 }
 
 void Application::run() {
-    initWindow();
-    initVulkan();
+    // initWindow();
+    // initVulkan();
     mainLoop();
 }
 
@@ -35,7 +40,7 @@ void Application::initWindow() {
         throw std::runtime_error("Failed to create GLFW window");
     }
     
-    std::cout << "Window created successfully: " << WINDOW_WIDTH << "x" << WINDOW_HEIGHT << std::endl;
+    // std::cout << "Window created successfully: " << WINDOW_WIDTH << "x" << WINDOW_HEIGHT << std::endl;
     
     glfwSetWindowUserPointer(m_window, this);
     
@@ -53,38 +58,44 @@ void Application::initWindow() {
     });
     
     glfwSetMouseButtonCallback(m_window, [](GLFWwindow* window, int button, int action, int mods) {
+        auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            app->m_dragging = true;
+            // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        }
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+            app->m_dragging = false;
+            // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         }
     });
 }
 
 void Application::initVulkan() {
-    std::cout << "Creating renderer..." << std::endl;
-    m_renderer = std::make_unique<SimpleRenderer>(m_window);
+    // std::cout << "Creating renderer..." << std::endl;
+    m_renderer = std::make_unique<Renderer>(m_window);
     
-    std::cout << "Creating camera..." << std::endl;
+    // std::cout << "Creating camera..." << std::endl;
     m_camera = std::make_unique<Camera>(WINDOW_WIDTH, WINDOW_HEIGHT);
-    
-    std::cout << "Creating scene..." << std::endl;
-    m_scene = std::make_unique<Scene>();
-    
-    // Initialize scene with basic geometry
-    std::cout << "Initializing scene..." << std::endl;
-    m_scene->init();
-    
-    // Initialize renderer geometry with scene data
-    std::cout << "Initializing renderer geometry..." << std::endl;
-    m_renderer->initGeometry(m_scene.get());
-    
-    std::cout << "Vulkan initialization complete!" << std::endl;
+
+    // std::cout << "Creating scene..." << std::endl;
+    // m_scene = std::make_unique<Scene>();
+    //
+    // // Initialize scene with basic geometry
+    // std::cout << "Initializing scene..." << std::endl;
+    // m_scene->init();
+    //
+    // // Initialize renderer geometry with scene data
+    // std::cout << "Initializing renderer geometry..." << std::endl;
+    // // m_renderer->initGeometry(m_scene.get());
+    //
+    // std::cout << "Vulkan initialization complete!" << std::endl;
 }
 
 void Application::mainLoop() {
     m_running = true;
     m_lastTime = static_cast<float>(glfwGetTime());
     
-    std::cout << "Starting main loop..." << std::endl;
+    // std::cout << "Starting main loop..." << std::endl;
     
     while (m_running && !glfwWindowShouldClose(m_window)) {
         glfwPollEvents();
@@ -107,14 +118,14 @@ void Application::mainLoop() {
     }
     
     std::cout << "Main loop ended." << std::endl;
-    vkDeviceWaitIdle(m_renderer->getDevice());
+    // m_renderer->getDevice().waitIdle();
 }
 
 void Application::drawFrame() {
     try {
-        m_renderer->beginFrame();
-        m_renderer->render(m_camera.get(), m_scene.get());
-        m_renderer->endFrame();
+        // m_renderer->beginFrame();
+        m_renderer->drawFrame(*m_camera);
+        // m_renderer->endFrame();
     } catch (const std::exception& e) {
         std::cerr << "Error in drawFrame: " << e.what() << std::endl;
         m_running = false;
@@ -124,11 +135,14 @@ void Application::drawFrame() {
 void Application::update(float deltaTime) {
     handleInput(deltaTime);
     m_camera->update(deltaTime);
-    m_scene->update(deltaTime);
+    // m_scene->update(deltaTime);
 }
 
 void Application::handleInput(float deltaTime) {
     // Camera movement
+    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS) {
+        m_camera->moveForward(deltaTime);
+    }
     if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS) {
         m_camera->moveForward(deltaTime);
     }
@@ -151,7 +165,10 @@ void Application::handleInput(float deltaTime) {
     // Mouse look
     double xpos, ypos;
     glfwGetCursorPos(m_window, &xpos, &ypos);
-    m_camera->handleMouseMovement(static_cast<float>(xpos), static_cast<float>(ypos));
+
+    if (m_dragging) {
+        m_camera->handleMouseMovement(static_cast<float>(xpos), static_cast<float>(ypos));
+    }
 }
 
 void Application::cleanup() {

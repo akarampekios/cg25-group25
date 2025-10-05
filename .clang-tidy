@@ -1,0 +1,17 @@
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  readability-*,
+  cppcoreguidelines-*,
+  portability-*,
+  clang-diagnostic-*,
+  misc-*,
+
+  # Exclude C++14+ checks
+  -modernize-make-unique
+CheckOptions:
+  - key: misc-include-cleaner.IgnoreHeaders
+    value: 'vulkan/.*'
+HeaderFilterRegex: '.*(src/|include/).*'

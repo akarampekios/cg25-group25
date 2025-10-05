@@ -1,7 +1,8 @@
 #pragma once
 
 #include <memory>
-#include <GLFW/glfw3.h>
+
+#include "Renderer.hpp"
 
 class SimpleRenderer;
 class Camera;
@@ -24,11 +25,12 @@ private:
     void handleInput(float deltaTime);
 
     GLFWwindow* m_window;
-    std::unique_ptr<SimpleRenderer> m_renderer;
+    std::unique_ptr<Renderer> m_renderer;
     std::unique_ptr<Camera> m_camera;
-    std::unique_ptr<Scene> m_scene;
+    // std::unique_ptr<Scene> m_scene;
 
     bool m_running;
+    bool m_dragging = false;
     float m_lastTime;
     float m_deltaTime;
 

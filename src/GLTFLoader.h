@@ -11,13 +11,13 @@ struct GLTFVertex {
     glm::vec2 texCoord;
     glm::vec3 color;
     
-    static VkVertexInputBindingDescription getBindingDescription();
-    static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
+    static vk::VertexInputBindingDescription getBindingDescription();
+    static std::vector<vk::VertexInputAttributeDescription> getAttributeDescriptions();
 };
 
 struct GLTFMesh {
     std::vector<GLTFVertex> vertices;
-    std::vector<uint32_t> indices;
+    std::vector<std::uint32_t> indices;
     glm::mat4 transform;
     std::string name;
     glm::vec3 baseColor;

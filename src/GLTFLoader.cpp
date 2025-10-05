@@ -199,40 +199,43 @@ glm::vec2 GLTFLoader::getVec2FromAccessor(const void* accessor, size_t index) {
     return glm::vec2(0.0f);
 }
 
-VkVertexInputBindingDescription GLTFVertex::getBindingDescription() {
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(GLTFVertex);
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    return bindingDescription;
+vk::VertexInputBindingDescription GLTFVertex::getBindingDescription() {
+    return {
+      .binding = 0,
+      .stride = sizeof(GLTFVertex),
+      .inputRate = vk::VertexInputRate::eVertex,
+    };
 }
 
-std::vector<VkVertexInputAttributeDescription> GLTFVertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(4);
-    
-    // Position
-    attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[0].offset = offsetof(GLTFVertex, position);
-    
-    // Normal
-    attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(GLTFVertex, normal);
-    
-    // Texture coordinates
-    attributeDescriptions[2].binding = 0;
-    attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescriptions[2].offset = offsetof(GLTFVertex, texCoord);
-    
-    // Color
-    attributeDescriptions[3].binding = 0;
-    attributeDescriptions[3].location = 3;
-    attributeDescriptions[3].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[3].offset = offsetof(GLTFVertex, color);
-    
-    return attributeDescriptions;
+std::vector<vk::VertexInputAttributeDescription> GLTFVertex::getAttributeDescriptions() {
+  constexpr vk::VertexInputAttributeDescription position {
+      .location = 0,
+      .binding = 0,
+      .format = vk::Format::eR32G32B32Sfloat,
+      .offset = offsetof(GLTFVertex, position),
+    };
+
+    constexpr vk::VertexInputAttributeDescription normal {
+      .location = 1,
+      .binding = 0,
+      .format = vk::Format::eR32G32B32Sfloat,
+      .offset = offsetof(GLTFVertex, normal),
+    };
+
+    constexpr vk::VertexInputAttributeDescription texture {
+      .location = 2,
+      .binding = 0,
+      .format = vk::Format::eR32G32Sfloat,
+      .offset = offsetof(GLTFVertex, texCoord),
+    };
+
+    constexpr vk::VertexInputAttributeDescription color {
+      .location = 3,
+      .binding = 0,
+      .format = vk::Format::eR32G32B32Sfloat,
+      .offset = offsetof(GLTFVertex, color),
+    };
+
+
+    return {position, normal, texture, color};
 }

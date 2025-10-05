@@ -13,3 +13,6 @@
 [submodule "external/imgui"]
 	path = external/imgui
 	url = git@github.com:ocornut/imgui.git
+[submodule "external/tinygltf"]
+	path = external/tinygltf
+	url = git@github.com:syoyo/tinygltf.git

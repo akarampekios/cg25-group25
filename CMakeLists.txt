@@ -30,6 +30,7 @@ include_directories(${CMAKE_SOURCE_DIR}/external/auto-vk/include)
 include_directories(${CMAKE_SOURCE_DIR}/external/glm)
 include_directories(${CMAKE_SOURCE_DIR}/external/imgui)
 include_directories(${CMAKE_SOURCE_DIR}/external/stb)
+include_directories(${CMAKE_SOURCE_DIR}/external/tinygltf)
 include_directories(${Vulkan_INCLUDE_DIRS})
 
 # Auto-VK library (disabled for now)
@@ -52,6 +53,8 @@ target_compile_definitions(CyberpunkCityDemo PRIVATE
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     GLM_ENABLE_EXPERIMENTAL
     STB_IMAGE_IMPLEMENTATION
+    STB_IMAGE_WRITE_IMPLEMENTATION
+    TINYGLTF_IMPLEMENTATION
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
     VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
 )

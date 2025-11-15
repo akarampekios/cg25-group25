@@ -41,18 +41,19 @@ build/**/lib/
 shaders/*.spv
 build/bin/shaders/
 
-# External dependency build outputs
-external/**/CMakeCache.txt
-external/**/CMakeFiles/
-external/**/cmake_install.cmake
-external/**/Makefile
-external/**/.vs/
-external/**/build/
-external/**/bin/
-external/**/lib/
-external/**/obj/
+# External depdendencies
+external
 
 # OS cruft
 .DS_Store
 Thumbs.db
 
+# Large files
+assets/
+!assets/.gitkeep
+!assets/README.md
+
+resources/models
+!resources/models/.gitkeep
+resources/scenes
+!resources/scenes/.gitkeep

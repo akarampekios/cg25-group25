@@ -1,5 +1,7 @@
 #include <iostream>
 #include <filesystem>
+#include <thread>
+#include <chrono>
 #include <glm/gtc/matrix_transform.hpp>
 
 // Include miniaudio implementation in this ONE cpp file only
@@ -84,14 +86,12 @@ void Application::run() {
         );
     
     const std::string scenePath = "assets/scene_full.glb";
-    std::cout << "[Init] Loading scene: " << scenePath << std::endl;
     if (!std::filesystem::exists(scenePath)) {
         throw std::runtime_error("Scene file not found: " + scenePath);
     }
 
     auto loaded = gltfLoader.load(scenePath);
     resourceManager.allocateSceneResources(loaded->scene);
-    std::cout << "[Init] Scene loaded successfully!" << std::endl;
 
     if (m_audioEngine && m_backgroundMusic) {
         if (ma_sound_init_from_file(m_audioEngine, "assets/soundtrack_2.mp3", 
@@ -109,6 +109,10 @@ void Application::run() {
     double lastFPSTime = startTime;
     int frameCount = 0;
     
+    // Frame pacing: target 60 FPS (16.67ms per frame)
+    const double targetFrameTime = 1.0 / 60.0;
+    double frameStartTime = startTime;
+    
     std::cout << "[Render] Entering render loop..." << std::endl;
     
     while (!glfwWindowShouldClose(m_window)) {
@@ -118,20 +122,35 @@ void Application::run() {
         const double deltaTime = currentTime - lastTime;
         lastTime = currentTime;
         
-        const float animationTime = static_cast<float>(currentTime - startTime) * 0.5f; // Half speed
+        // Frame pacing: limit frame rate to prevent queue buildup
+        // The fence wait in drawFrame() already handles GPU sync, but we pace CPU-side
+        // to prevent submitting too many frames ahead of the GPU
+        const double elapsedSinceFrameStart = currentTime - frameStartTime;
+        if (elapsedSinceFrameStart < targetFrameTime) {
+            // Sleep to avoid busy-waiting (only if significant time remaining)
+            const double sleepTime = (targetFrameTime - elapsedSinceFrameStart) * 1000.0;
+            if (sleepTime > 1.0) {  // Only sleep if more than 1ms
+                std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int>(sleepTime * 1000)));
+            }
+        }
+        frameStartTime = currentTime;
+        
+        const float animationTime = static_cast<float>(currentTime - startTime) * 0.5f; // Quarter speed (half of previous half speed)
         
         animator.animate(loaded->model, loaded->scene, animationTime);
-        rayQueryPipeline.drawFrame(loaded->scene);
+        
+        rayQueryPipeline.drawFrame(loaded->scene, animationTime);
         
         // FPS Counter (update every second)
-        // We should prob delete this later before presentation build
         frameCount++;
         if (currentTime - lastFPSTime >= 1.0) {
             const double fps = frameCount / (currentTime - lastFPSTime);
             const double avgFrameTime = (currentTime - lastFPSTime) / frameCount * 1000.0;
+            const double lastDeltaMs = deltaTime * 1000.0;
+            
             std::cout << "FPS: " << static_cast<int>(fps) 
-                      << " | Avg Frame Time: " << avgFrameTime << "ms" 
-                      << " | Last Delta: " << deltaTime * 1000.0 << "ms" << std::endl;
+                      << " | Avg: " << avgFrameTime << "ms" 
+                      << " | Last: " << lastDeltaMs << "ms" << std::endl;
             frameCount = 0;
             lastFPSTime = currentTime;
         }

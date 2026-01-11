@@ -1636,7 +1636,7 @@ void ResourceManager::updateIndirectDrawBuffers(const Scene& scene, const std::u
     bool cameraChanged = !m_indirectDrawBuffersInitialized[frameIdx];
     if (!cameraChanged) {
         // Check if any matrix element changed by more than threshold
-        constexpr float CAMERA_CHANGE_THRESHOLD = 0.0001f;
+        constexpr float CAMERA_CHANGE_THRESHOLD = 0.01f;
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 if (std::abs(currentViewProj[i][j] - m_cachedCameraViewProj[frameIdx][i][j]) > CAMERA_CHANGE_THRESHOLD) {
@@ -1856,4 +1856,5 @@ void ResourceManager::updateIndirectDrawBuffers(const Scene& scene, const std::u
         }
         // If no animated instances, we skip the update entirely - huge win!
     }
+    
 }

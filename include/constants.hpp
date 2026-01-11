@@ -27,7 +27,7 @@ static constexpr vk::Format POST_PROCESSING_IMAGE_FORMAT = vk::Format::eR16G16B1
 
 // TAA (Temporal Anti-Aliasing) Configuration
 constexpr bool TAA_ENABLED = true;  // Enable TAA (disables MSAA when true)
-constexpr float TAA_BLEND_FACTOR = 0.1f;  // α: 0.1 = 90% history, 10% current (higher = more responsive but more aliasing)
+constexpr float TAA_BLEND_FACTOR = 0.2f;  // α: 0.2 = 80% history, 20% current (was 0.1 - increased for faster response)
 constexpr std::uint32_t TAA_JITTER_SEQUENCE_LENGTH = 16;  // Halton sequence length before repeat
 static constexpr vk::Format VELOCITY_BUFFER_FORMAT = vk::Format::eR16G16Sfloat;  // RG16F for motion vectors
 
@@ -102,6 +102,4 @@ inline void initializeTextureSettings(std::uint64_t availableVRAM_bytes) {
         profileName = "HIGH"; maxDim = 8192;
     }
     
-    std::cout << "[GPU] VRAM: " << vramMB << " MB | Profile: " << profileName 
-              << " | Max texture: " << maxDim << "x" << maxDim << std::endl;
 }

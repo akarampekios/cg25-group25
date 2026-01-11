@@ -30,7 +30,7 @@ public:
 
     ~RayQueryPipeline() = default;
 
-    void drawFrame(const Scene& scene);
+    void drawFrame(Scene& scene, float animationTime);
     
     // TAA: Get current frame's jitter offset (in pixels)
     [[nodiscard]] glm::vec2 getJitterOffset() const { return m_jitterOffset; }

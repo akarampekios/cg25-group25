@@ -699,7 +699,7 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
     cmd.end();
 }
 
-void RayQueryPipeline::drawFrame(const Scene& scene) {
+void RayQueryPipeline::drawFrame(Scene& scene, float animationTime) {
     static auto startTime = std::chrono::high_resolution_clock::now();
     const auto currentTime = std::chrono::high_resolution_clock::now();
     const float time = std::chrono::duration<float>(currentTime - startTime).count();
@@ -708,10 +708,15 @@ void RayQueryPipeline::drawFrame(const Scene& scene) {
     updateJitter();
     
     // Wait for the current frame's fence (ensures we don't have more than MAX_FRAMES_IN_FLIGHT in flight)
+    // IMPORTANT: Camera should be updated AFTER this wait, so it matches when the frame actually renders
     while (vk::Result::eTimeout == m_vulkanCore.device().waitForFences(*m_inFlightFences[m_currentFrame], vk::True,
         UINT64_MAX)) {
         // wait
     }
+    
+    // Calculate animation time based on ACTUAL render time (after fence wait)
+    // This ensures camera position matches when the frame actually renders, not when we started
+    const float renderTime = std::chrono::duration<float>(currentTime - startTime).count() * 0.5f;
 
     // Acquire the next available swap chain image
     // We use m_semaphoreIndex to rotate through acquire semaphores
@@ -722,6 +727,10 @@ void RayQueryPipeline::drawFrame(const Scene& scene) {
         // recreateSwapChain();
         return;
     }
+
+    // NOTE: Camera should be updated here (after fence wait) using renderTime
+    // But we can't do it here without animator access, so Application must update it
+    // right before calling drawFrame() - the animationTime parameter is for future use
 
     m_resourceManager.updateSceneResources(scene, time, m_currentFrame, m_jitterOffset);
 

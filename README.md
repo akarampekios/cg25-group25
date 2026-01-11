@@ -11,6 +11,19 @@ A real-time rendering demo showcasing ray tracing and volumetric lighting effect
 - **Post-processing effects** including bloom and tone mapping
 - **Temporal Anti-Aliasing (TAA)** for smooth edge rendering and reduced flickering
 
+## **Controls**
+
+### **Free Camera Mode**
+Toggle between Cinematic and Free Camera modes by pressing **`F`**.
+
+| Key | Action |
+|-----|--------|
+| `W`, `A`, `S`, `D` | Move Camera (Forward, Left, Backward, Right) |
+| `Space` | Move Up |
+| `Left Ctrl` | Move Down |
+| `Left Shift` | Sprint (Move Faster) |
+| `Mouse` | Look Around |
+
 ## Hybrid Rendering Architecture
 
 This project uses a **hybrid rasterization + ray tracing** approach for optimal real-time performance:

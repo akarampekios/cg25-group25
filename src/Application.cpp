@@ -113,6 +113,9 @@ void Application::run() {
     const double targetFrameTime = 1.0 / 60.0;
     double frameStartTime = startTime;
     
+    // Initialize free camera
+    m_freeCamera.setPosition(loaded->scene.camera.getPosition());
+
     std::cout << "[Render] Entering render loop..." << std::endl;
     
     while (!glfwWindowShouldClose(m_window)) {
@@ -135,9 +138,34 @@ void Application::run() {
         }
         frameStartTime = currentTime;
         
+        // Toggle camera mode with F key (debounced)
+        bool fKeyDown = glfwGetKey(m_window, GLFW_KEY_F) == GLFW_PRESS;
+        if (fKeyDown && !m_fKeyPressed) {
+            m_useFreeCam = !m_useFreeCam;
+            
+            if (m_useFreeCam) {
+                // Switched to free camera
+                m_freeCamera.setPosition(loaded->scene.camera.getPosition());
+                // Capture mouse
+                glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                std::cout << "Free Camera: ENABLED (WASD=move, Mouse=look, Shift=sprint, F=toggle)" << std::endl;
+                m_freeCamera.resetMouse(m_window);
+            } else {
+                // Switched back to animated camera
+                glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                std::cout << "Free Camera: DISABLED (cinematic path active)" << std::endl;
+            }
+        }
+        m_fKeyPressed = fKeyDown;
+
         const float animationTime = static_cast<float>(currentTime - startTime) * 0.5f; // Quarter speed (half of previous half speed)
         
-        animator.animate(loaded->model, loaded->scene, animationTime);
+        if (m_useFreeCam) {
+            m_freeCamera.update(m_window, static_cast<float>(deltaTime));
+            loaded->scene.camera.model = m_freeCamera.getModelMatrix();
+        } else {
+            animator.animate(loaded->model, loaded->scene, animationTime);
+        }
         
         rayQueryPipeline.drawFrame(loaded->scene, animationTime);
         

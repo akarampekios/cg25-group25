@@ -17,6 +17,7 @@ struct ma_sound;
 #include "ResourceManager.hpp"
 #include "CommandManager.hpp"
 #include "GLTFLoader.hpp"
+#include "FreeCamera.hpp"
 
 class Application {
 public:
@@ -31,6 +32,11 @@ private:
     
     ma_engine* m_audioEngine;
     ma_sound* m_backgroundMusic;
+
+    // Free camera support
+    FreeCamera m_freeCamera;
+    bool m_useFreeCam = false;
+    bool m_fKeyPressed = false;
 
     void createWindow();
 

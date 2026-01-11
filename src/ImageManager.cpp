@@ -3,6 +3,13 @@
 #include "SharedTypes.hpp"
 #include "CommandManager.hpp"
 #include "BufferManager.hpp"
+#include <iostream>
+
+// Global memory tracking
+namespace {
+    std::size_t g_totalAllocatedMemory = 0;
+    std::size_t g_peakMemoryUsage = 0;
+}
 
 ImageManager::ImageManager(VulkanCore& vulkanCore, CommandManager& commandManager, BufferManager& bufferManager) :
     m_vulkanCore{vulkanCore},
@@ -42,8 +49,25 @@ void ImageManager::createImage(
         .memoryTypeIndex = m_vulkanCore.findMemoryType(memRequirements.memoryTypeBits, properties),
     };
 
-    imageMemory = vk::raii::DeviceMemory(m_vulkanCore.device(), allocInfo);
-    image.bindMemory(imageMemory, 0);
+    try {
+        imageMemory = vk::raii::DeviceMemory(m_vulkanCore.device(), allocInfo);
+        image.bindMemory(imageMemory, 0);
+        
+        // Track memory usage
+        g_totalAllocatedMemory += memRequirements.size;
+        if (g_totalAllocatedMemory > g_peakMemoryUsage) {
+            g_peakMemoryUsage = g_totalAllocatedMemory;
+        }
+    } catch (const vk::OutOfDeviceMemoryError& e) {
+        const float sizeMB = static_cast<float>(memRequirements.size) / (1024.0f * 1024.0f);
+        std::cerr << "[GPU Memory] ERROR: Out of device memory while allocating image!" << std::endl;
+        std::cerr << "  - Image size: " << width << "x" << height << std::endl;
+        std::cerr << "  - Mip levels: " << mipLevels << std::endl;
+        std::cerr << "  - Memory required: " << sizeMB << " MB" << std::endl;
+        std::cerr << "  - Total memory already allocated: " 
+                  << (static_cast<float>(g_totalAllocatedMemory) / (1024.0f * 1024.0f)) << " MB" << std::endl;
+        throw;
+    }
 }
 
 vk::raii::ImageView ImageManager::createImageView(
@@ -154,29 +178,34 @@ void ImageManager::createImageFromTexture(const Texture& texture,
         texture.mipLevels
         );
 
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingBufferMemory({});
-    const vk::DeviceSize imageSize = texture.image.size();
+    // Use explicit scope to ensure staging buffers are freed immediately after upload
+    {
+        vk::raii::Buffer stagingBuffer({});
+        vk::raii::DeviceMemory stagingBufferMemory({});
+        const vk::DeviceSize imageSize = texture.image.size();
 
-    m_bufferManager.createBuffer(
-        imageSize,
-        vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eHostVisible |
-        vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingBufferMemory
-        );
+        m_bufferManager.createBuffer(
+            imageSize,
+            vk::BufferUsageFlagBits::eTransferSrc,
+            vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+            stagingBuffer,
+            stagingBufferMemory
+            );
 
-    void* data = stagingBufferMemory.mapMemory(0, imageSize);
-    memcpy(data, texture.image.data(), imageSize);
-    stagingBufferMemory.unmapMemory();
+        void* data = stagingBufferMemory.mapMemory(0, imageSize);
+        memcpy(data, texture.image.data(), imageSize);
+        stagingBufferMemory.unmapMemory();
 
-    m_bufferManager.copyBufferToImage(
-        stagingBuffer,
-        image,
-        texture.width,
-        texture.height
-        );
+        m_bufferManager.copyBufferToImage(
+            stagingBuffer,
+            image,
+            texture.width,
+            texture.height
+            );
+        
+        // stagingBuffer and stagingBufferMemory are destroyed here when leaving scope
+    }
 
     if (texture.mipLevels > 1) {
         generateMipmaps(
@@ -184,6 +213,14 @@ void ImageManager::createImageFromTexture(const Texture& texture,
             texture.format,
             texture.width,
             texture.height,
+            texture.mipLevels
+            );
+    } else {
+        // For textures with only 1 mip level, we need to transition from TransferDst to ShaderReadOnly
+        transitionImageLayout(
+            image,
+            vk::ImageLayout::eTransferDstOptimal,
+            vk::ImageLayout::eShaderReadOnlyOptimal,
             texture.mipLevels
             );
     }

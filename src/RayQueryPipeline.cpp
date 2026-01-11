@@ -335,7 +335,7 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
 
     // Update TLAS if scene has animated objects - this happens BEFORE rendering
     // so the updated acceleration structure is ready for ray queries
-    m_resourceManager.recordTLASUpdate(*cmd, scene, false);
+    m_resourceManager.recordTLASUpdate(*cmd, scene, false, m_currentFrame);
     
     // transition multisampled color image
     m_imageManager.transitionImageLayout(
@@ -581,7 +581,7 @@ void RayQueryPipeline::drawFrame(const Scene& scene) {
             break;
         // TODO: implement swap chain recreation!
         case vk::Result::eSuboptimalKHR:
-            std::cout << "vk::Queue::presentKHR returned vk::Result::eSuboptimalKHR !\n";
+            // Suboptimal presentation is not critical, silently continue
             break;
         default:
             break;

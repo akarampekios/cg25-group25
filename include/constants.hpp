@@ -2,7 +2,11 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <iostream>
 #include <vulkan/vulkan.hpp>
+
+// Set to true to enable verbose debug output during loading
+constexpr bool VERBOSE_DEBUG_OUTPUT = false;
 
 constexpr int WINDOW_WIDTH = 1920;
 constexpr int WINDOW_HEIGHT = 1080;
@@ -24,3 +28,57 @@ static constexpr vk::Format POST_PROCESSING_IMAGE_FORMAT = vk::Format::eR16G16B1
 constexpr float GLTF_DIRECTIONAL_LIGHT_INTENSITY_CONVERSION_FACTOR = 50000.0;
 constexpr float GLTF_POINT_LIGHT_INTENSITY_CONVERSION_FACTOR = 500.0;
 constexpr float GLTF_SPOT_LIGHT_INTENSITY_CONVERSION_FACTOR = 500.0;
+
+// Texture memory management - dynamic configuration
+struct TextureMemoryConfig {
+    std::uint32_t maxMipLevels;
+    std::uint32_t maxTextureDimension;
+    bool enableDownscaling;
+    std::uint32_t tdrPreventionBatchSize;  // Flush GPU every N textures to prevent TDR
+    std::uint32_t tdrPreventionDelayMs;    // Sleep time between batches (milliseconds)
+    bool skipEmissiveTextures;             // Skip emissive textures for problematic GPUs
+};
+
+// Global texture configuration (initialized at startup based on VRAM)
+inline TextureMemoryConfig g_textureConfig = {
+    .maxMipLevels = 16,             // Full quality default
+    .maxTextureDimension = 8192,    // No limit default
+    .enableDownscaling = false,
+    .tdrPreventionBatchSize = 0,    // 0 = disabled (high-end GPU)
+    .tdrPreventionDelayMs = 0,
+    .skipEmissiveTextures = false
+};
+
+// Initialize texture settings based on available VRAM
+inline void initializeTextureSettings(std::uint64_t availableVRAM_bytes) {
+    const std::uint64_t vramGB = availableVRAM_bytes / (1024ULL * 1024ULL * 1024ULL);
+    
+    if (vramGB < 6) {
+        // Low VRAM (< 6 GB) - use 1024x1024 textures for good quality
+        g_textureConfig.maxMipLevels = 10;
+        g_textureConfig.maxTextureDimension = 1024;
+        g_textureConfig.enableDownscaling = true;
+        g_textureConfig.tdrPreventionBatchSize = 15;
+        g_textureConfig.tdrPreventionDelayMs = 100;
+        g_textureConfig.skipEmissiveTextures = false;
+    } else if (vramGB < 8) {
+        g_textureConfig.maxMipLevels = 6;
+        g_textureConfig.maxTextureDimension = 1024;
+        g_textureConfig.enableDownscaling = true;
+        g_textureConfig.tdrPreventionBatchSize = 30;
+        g_textureConfig.tdrPreventionDelayMs = 50;
+    } else if (vramGB < 12) {
+        g_textureConfig.maxMipLevels = 10;
+        g_textureConfig.maxTextureDimension = 2048;
+        g_textureConfig.enableDownscaling = true;
+        g_textureConfig.tdrPreventionBatchSize = 50;
+        g_textureConfig.tdrPreventionDelayMs = 25;
+    } else {
+        // Plenty of VRAM - use full quality
+        g_textureConfig.maxMipLevels = 16;
+        g_textureConfig.maxTextureDimension = 8192;
+        g_textureConfig.enableDownscaling = false;
+        g_textureConfig.tdrPreventionBatchSize = 0;
+        g_textureConfig.tdrPreventionDelayMs = 0;
+    }
+}

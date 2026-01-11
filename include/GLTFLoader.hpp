@@ -68,4 +68,11 @@ private:
                                 std::vector<glm::mat4>& outMatrices);
 
     auto getLocalTransform(const tinygltf::Node& node) -> glm::mat4;
+
+    std::vector<unsigned char> downscaleImage(const std::vector<unsigned char>& srcImage,
+                                              std::uint32_t srcWidth,
+                                              std::uint32_t srcHeight,
+                                              std::uint32_t dstWidth,
+                                              std::uint32_t dstHeight,
+                                              int components);
 };

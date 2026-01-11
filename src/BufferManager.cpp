@@ -1,6 +1,7 @@
 #include "BufferManager.hpp"
 #include "VulkanCore.hpp"
 #include "CommandManager.hpp"
+#include <iostream>
 
 BufferManager::BufferManager(
     VulkanCore& vulkanCore,
@@ -45,8 +46,17 @@ void BufferManager::createBuffer(
         memoryAllocateInfo.pNext = &memoryAllocateFlagsInfo;
     }
 
-    bufferMemory = vk::raii::DeviceMemory(m_vulkanCore.device(), memoryAllocateInfo);
-    buffer.bindMemory(*bufferMemory, 0);
+    try {
+        bufferMemory = vk::raii::DeviceMemory(m_vulkanCore.device(), memoryAllocateInfo);
+        buffer.bindMemory(*bufferMemory, 0);
+    } catch (const vk::OutOfDeviceMemoryError& e) {
+        const float sizeMB = static_cast<float>(memoryRequirements.size) / (1024.0f * 1024.0f);
+        std::string memType = (properties & vk::MemoryPropertyFlagBits::eDeviceLocal) ? "Device Local" : "Host Visible";
+        std::cerr << "[GPU Memory] ERROR: Out of device memory while allocating buffer!" << std::endl;
+        std::cerr << "  - Buffer size: " << sizeMB << " MB" << std::endl;
+        std::cerr << "  - Memory type: " << memType << std::endl;
+        throw;
+    }
 
     if (data != nullptr) {
         vk::raii::Buffer stagingBuffer = nullptr;

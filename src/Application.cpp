@@ -1,4 +1,5 @@
 #include <iostream>
+#include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>
 
 // Include miniaudio implementation in this ONE cpp file only
@@ -82,7 +83,12 @@ void Application::run() {
         postProcessingStack
         );
     
-    auto loaded = gltfLoader.load("assets/scene_full.glb");
+    const std::string scenePath = "assets/scene_full.glb";
+    if (!std::filesystem::exists(scenePath)) {
+        throw std::runtime_error("Scene file not found: " + scenePath);
+    }
+
+    auto loaded = gltfLoader.load(scenePath);
 
     resourceManager.allocateSceneResources(loaded->scene);
 
@@ -109,7 +115,7 @@ void Application::run() {
         const double deltaTime = currentTime - lastTime;
         lastTime = currentTime;
         
-        const float animationTime = static_cast<float>(currentTime - startTime);
+        const float animationTime = static_cast<float>(currentTime - startTime) * 0.5f; // Half speed
         
         animator.animate(loaded->model, loaded->scene, animationTime);
         rayQueryPipeline.drawFrame(loaded->scene);
@@ -152,4 +158,8 @@ void Application::createWindow() {
 
 void Application::initVulkanCore() {
     m_vulkanCore = std::make_unique<VulkanCore>(m_window);
+    
+    // Initialize texture settings based on available VRAM
+    const std::uint64_t availableVRAM = m_vulkanCore->getAvailableVRAM();
+    initializeTextureSettings(availableVRAM);
 }

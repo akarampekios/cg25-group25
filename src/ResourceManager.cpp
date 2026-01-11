@@ -3,9 +3,11 @@
 #include <stdexcept>
 #include <cstdint>
 #include <array>
+#include <algorithm>
 #include <utility>
 #include <vector>
 #include <chrono>
+#include <thread>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
@@ -258,13 +260,13 @@ void ResourceManager::createDescriptorSetLayouts() {
     };
 
     std::array bindingFlags = {
-        vk::DescriptorBindingFlags(0),
-        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound),
-        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound),
-        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound),
-        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound),
-        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound),
-        vk::DescriptorBindingFlags(0),
+        vk::DescriptorBindingFlags(0),                                              // materials
+        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound), // baseColor
+        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound), // metallicRoughness
+        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound), // normal
+        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound), // emissive
+        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound), // occlusion
+        vk::DescriptorBindingFlags(vk::DescriptorBindingFlagBits::ePartiallyBound), // skybox (may be skipped on low VRAM)
     };
 
     vk::DescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{
@@ -332,15 +334,15 @@ void ResourceManager::allocateSceneResources(const Scene& scene) {
     createMaterialBuffers(scene);
     createLightBuffers(scene);
     createIndirectDrawBuffers(scene);
+    
     createTextureImages(scene);
     createSkyboxImage(scene);
 
     createAccelerationStructures(scene);
+    
     createGlobalDescriptorSets(scene);
     createMaterialDescriptorSets(scene);
     createLightingDescriptorSets(scene);
-
-    updateTopLevelAccelerationStructures(scene, true);
 }
 
 void ResourceManager::updateSceneResources(const Scene& scene,
@@ -575,6 +577,19 @@ void ResourceManager::createTextureImages(const Scene& scene) {
     m_emissiveTextureImages.resize(scene.emissiveTextures.size());
     m_occlusionTextureImages.resize(scene.occlusionTextures.size());
 
+    // TDR prevention: track texture count and periodically flush GPU
+    std::uint32_t textureCounter = 0;
+    auto tdrPreventionCheck = [this, &textureCounter]() {
+        textureCounter++;
+        if (g_textureConfig.tdrPreventionBatchSize > 0 && 
+            textureCounter % g_textureConfig.tdrPreventionBatchSize == 0) {
+            m_vulkanCore.device().waitIdle();
+            if (g_textureConfig.tdrPreventionDelayMs > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(g_textureConfig.tdrPreventionDelayMs));
+            }
+        }
+    };
+
     for (std::size_t i = 0; i < scene.baseColorTextures.size(); i++) {
         const auto& texture = scene.baseColorTextures[i];
         m_imageManager.createImageFromTexture(
@@ -583,6 +598,7 @@ void ResourceManager::createTextureImages(const Scene& scene) {
             m_baseColorTextureImages[i].imageView,
             m_baseColorTextureImages[i].imageMemory
             );
+        tdrPreventionCheck();
     }
 
     for (std::size_t i = 0; i < scene.metallicRoughnessTextures.size(); i++) {
@@ -593,6 +609,7 @@ void ResourceManager::createTextureImages(const Scene& scene) {
             m_metallicTextureImages[i].imageView,
             m_metallicTextureImages[i].imageMemory
             );
+        tdrPreventionCheck();
     }
 
     for (std::size_t i = 0; i < scene.normalTextures.size(); i++) {
@@ -603,16 +620,27 @@ void ResourceManager::createTextureImages(const Scene& scene) {
             m_normalTextureImages[i].imageView,
             m_normalTextureImages[i].imageMemory
             );
+        tdrPreventionCheck();
     }
 
-    for (std::size_t i = 0; i < scene.emissiveTextures.size(); i++) {
-        const auto& texture = scene.emissiveTextures[i];
-        m_imageManager.createImageFromTexture(
-            texture,
-            m_emissiveTextureImages[i].image,
-            m_emissiveTextureImages[i].imageView,
-            m_emissiveTextureImages[i].imageMemory
-            );
+    if (g_textureConfig.skipEmissiveTextures) {
+        m_emissiveTextureImages.clear();
+    } else {
+        for (std::size_t i = 0; i < scene.emissiveTextures.size(); i++) {
+            auto texture = scene.emissiveTextures[i];
+            texture.mipLevels = 1;
+            texture.format = vk::Format::eR8G8B8A8Srgb;
+            
+            m_imageManager.createImageFromTexture(
+                texture,
+                m_emissiveTextureImages[i].image,
+                m_emissiveTextureImages[i].imageView,
+                m_emissiveTextureImages[i].imageMemory
+                );
+            
+            // TDR prevention: periodic flush
+            tdrPreventionCheck();
+        }
     }
 
     for (std::size_t i = 0; i < scene.occlusionTextures.size(); i++) {
@@ -623,18 +651,24 @@ void ResourceManager::createTextureImages(const Scene& scene) {
             m_occlusionTextureImages[i].imageView,
             m_occlusionTextureImages[i].imageMemory
             );
+        tdrPreventionCheck();
     }
 }
 
 void ResourceManager::createSkyboxImage(const Scene& scene) {
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingBufferMemory({});
+    if (g_textureConfig.skipEmissiveTextures) {
+        return;
+    }
 
     if (scene.skySphereTextureIndex < 0) {
         return;
     }
 
-    const auto& texture = scene.emissiveTextures[scene.skySphereTextureIndex];
+    auto texture = scene.emissiveTextures[scene.skySphereTextureIndex];
+    
+    // Skybox texture: limit mip levels and force safe RGBA format
+    texture.mipLevels = 1;
+    texture.format = vk::Format::eR8G8B8A8Srgb;
 
     m_imageManager.createImageFromTexture(
         texture,
@@ -682,7 +716,7 @@ void ResourceManager::createGlobalDescriptorSets(const Scene& scene) {
 
         const vk::WriteDescriptorSetAccelerationStructureKHR asInfo{
             .accelerationStructureCount = 1,
-            .pAccelerationStructures = &*m_tlas,
+            .pAccelerationStructures = &*m_tlasHandles[i],
         };
 
         const vk::WriteDescriptorSet asWrite{
@@ -1075,96 +1109,141 @@ void ResourceManager::createBLASInstances(const Scene& scene) {
     }
 
     const vk::DeviceSize instBufferSize = sizeof(vk::AccelerationStructureInstanceKHR) * m_blasInstances.size();
-    m_bufferManager.createBuffer(
-        instBufferSize,
-        vk::BufferUsageFlagBits::eShaderDeviceAddress |
-        vk::BufferUsageFlagBits::eTransferDst |
-        vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        m_blasInstancesBuffer,
-        m_blasInstancesMemory,
-        m_blasInstances.data()
+
+    m_blasInstancesBuffers.clear();
+    m_blasInstancesMemories.clear();
+    m_blasInstancesBuffersMapped.clear();
+
+    m_blasInstancesBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
+    m_blasInstancesMemories.reserve(MAX_FRAMES_IN_FLIGHT);
+    m_blasInstancesBuffersMapped.reserve(MAX_FRAMES_IN_FLIGHT);
+
+    for (std::uint32_t frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; ++frameIdx) {
+        vk::raii::Buffer instancesBuffer{nullptr};
+        vk::raii::DeviceMemory instancesMemory{nullptr};
+
+        // Host-visible + coherent so we can update instance transforms every frame without staging.
+        m_bufferManager.createBuffer(
+            instBufferSize,
+            vk::BufferUsageFlagBits::eShaderDeviceAddress |
+            vk::BufferUsageFlagBits::eTransferDst |
+            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+            instancesBuffer,
+            instancesMemory,
+            m_blasInstances.data()
         );
-    
-    // Keep the buffer persistently mapped for efficient updates
-    m_blasInstancesBufferMapped = m_blasInstancesMemory.mapMemory(0, instBufferSize);
+
+        void* mapped = instancesMemory.mapMemory(0, instBufferSize);
+
+        m_blasInstancesBuffers.emplace_back(std::move(instancesBuffer));
+        m_blasInstancesMemories.emplace_back(std::move(instancesMemory));
+        m_blasInstancesBuffersMapped.emplace_back(mapped);
+    }
 }
 
 void ResourceManager::createTLAS() {
-    vk::BufferDeviceAddressInfo instanceAddrInfo{.buffer = m_blasInstancesBuffer};
-    vk::DeviceAddress instanceAddr = m_vulkanCore.device().getBufferAddress(instanceAddrInfo);
+    m_tlasBuffers.clear();
+    m_tlasMemories.clear();
+    m_tlasScratchBuffers.clear();
+    m_tlasScratchMemories.clear();
+    m_tlasHandles.clear();
 
-    vk::AccelerationStructureGeometryInstancesDataKHR instancesData{
-        .arrayOfPointers = false,
-        .data = instanceAddr,
-    };
+    m_tlasBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
+    m_tlasMemories.reserve(MAX_FRAMES_IN_FLIGHT);
+    m_tlasScratchBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
+    m_tlasScratchMemories.reserve(MAX_FRAMES_IN_FLIGHT);
+    m_tlasHandles.reserve(MAX_FRAMES_IN_FLIGHT);
 
-    vk::AccelerationStructureGeometryDataKHR geometryData(instancesData);
+    for (std::uint32_t frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; ++frameIdx) {
+        vk::BufferDeviceAddressInfo instanceAddrInfo{.buffer = m_blasInstancesBuffers[frameIdx]};
+        vk::DeviceAddress instanceAddr = m_vulkanCore.device().getBufferAddress(instanceAddrInfo);
 
-    vk::AccelerationStructureGeometryKHR tlasGeometry{
-        .geometryType = vk::GeometryTypeKHR::eInstances,
-        .geometry = geometryData
-    };
+        vk::AccelerationStructureGeometryInstancesDataKHR instancesData{
+            .arrayOfPointers = false,
+            .data = instanceAddr,
+        };
 
-    vk::AccelerationStructureBuildGeometryInfoKHR tlasBuildGeometryInfo{
-        .type = vk::AccelerationStructureTypeKHR::eTopLevel,
-        .flags = vk::BuildAccelerationStructureFlagBitsKHR::eAllowUpdate,
-        .mode = vk::BuildAccelerationStructureModeKHR::eBuild,
-        .geometryCount = 1,
-        .pGeometries = &tlasGeometry,
-    };
+        vk::AccelerationStructureGeometryDataKHR geometryData(instancesData);
 
-    auto primitiveCount = static_cast<uint32_t>(m_blasInstances.size());
+        vk::AccelerationStructureGeometryKHR tlasGeometry{
+            .geometryType = vk::GeometryTypeKHR::eInstances,
+            .geometry = geometryData
+        };
 
-    vk::AccelerationStructureBuildSizesInfoKHR tlasBuildSizes =
-        m_vulkanCore.device().getAccelerationStructureBuildSizesKHR(
-            vk::AccelerationStructureBuildTypeKHR::eDevice,
-            tlasBuildGeometryInfo,
-            {primitiveCount}
+        vk::AccelerationStructureBuildGeometryInfoKHR tlasBuildGeometryInfo{
+            .type = vk::AccelerationStructureTypeKHR::eTopLevel,
+            .flags = vk::BuildAccelerationStructureFlagBitsKHR::eAllowUpdate,
+            .mode = vk::BuildAccelerationStructureModeKHR::eBuild,
+            .geometryCount = 1,
+            .pGeometries = &tlasGeometry,
+        };
+
+        auto primitiveCount = static_cast<uint32_t>(m_blasInstances.size());
+
+        vk::AccelerationStructureBuildSizesInfoKHR tlasBuildSizes =
+            m_vulkanCore.device().getAccelerationStructureBuildSizesKHR(
+                vk::AccelerationStructureBuildTypeKHR::eDevice,
+                tlasBuildGeometryInfo,
+                {primitiveCount}
             );
 
-    m_bufferManager.createBuffer(
-        tlasBuildSizes.buildScratchSize,
-        vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        m_tlasScratchBuffer,
-        m_tlasScratchMemory
+        // IMPORTANT: updateScratchSize can be > buildScratchSize (driver-dependent).
+        const vk::DeviceSize scratchSize = std::max(tlasBuildSizes.buildScratchSize, tlasBuildSizes.updateScratchSize);
+
+        vk::raii::Buffer tlasScratchBuffer{nullptr};
+        vk::raii::DeviceMemory tlasScratchMemory{nullptr};
+        m_bufferManager.createBuffer(
+            scratchSize,
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            vk::MemoryPropertyFlagBits::eDeviceLocal,
+            tlasScratchBuffer,
+            tlasScratchMemory
         );
 
-    vk::BufferDeviceAddressInfo scratchAddressInfo{.buffer = *m_tlasScratchBuffer};
-    vk::DeviceAddress scratchAddr = m_vulkanCore.device().getBufferAddress(scratchAddressInfo);
-    tlasBuildGeometryInfo.scratchData.deviceAddress = scratchAddr;
+        vk::BufferDeviceAddressInfo scratchAddressInfo{.buffer = *tlasScratchBuffer};
+        vk::DeviceAddress scratchAddr = m_vulkanCore.device().getBufferAddress(scratchAddressInfo);
+        tlasBuildGeometryInfo.scratchData.deviceAddress = scratchAddr;
 
-    m_bufferManager.createBuffer(
-        tlasBuildSizes.accelerationStructureSize,
-        vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
-        vk::BufferUsageFlagBits::eShaderDeviceAddress |
-        vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        m_tlasBuffer,
-        m_tlasMemory
+        vk::raii::Buffer tlasBuffer{nullptr};
+        vk::raii::DeviceMemory tlasMemory{nullptr};
+        m_bufferManager.createBuffer(
+            tlasBuildSizes.accelerationStructureSize,
+            vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress |
+            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR,
+            vk::MemoryPropertyFlagBits::eDeviceLocal,
+            tlasBuffer,
+            tlasMemory
         );
 
-    vk::AccelerationStructureCreateInfoKHR tlasCreateInfo{
-        .buffer = m_tlasBuffer,
-        .offset = 0,
-        .size = tlasBuildSizes.accelerationStructureSize,
-        .type = vk::AccelerationStructureTypeKHR::eTopLevel,
-    };
+        vk::AccelerationStructureCreateInfoKHR tlasCreateInfo{
+            .buffer = tlasBuffer,
+            .offset = 0,
+            .size = tlasBuildSizes.accelerationStructureSize,
+            .type = vk::AccelerationStructureTypeKHR::eTopLevel,
+        };
 
-    m_tlas = m_vulkanCore.device().createAccelerationStructureKHR(tlasCreateInfo);
-    tlasBuildGeometryInfo.dstAccelerationStructure = m_tlas;
+        auto tlasHandle = m_vulkanCore.device().createAccelerationStructureKHR(tlasCreateInfo);
+        tlasBuildGeometryInfo.dstAccelerationStructure = tlasHandle;
 
-    vk::AccelerationStructureBuildRangeInfoKHR tlasRangeInfo{
-        .primitiveCount = primitiveCount,
-        .primitiveOffset = 0,
-        .firstVertex = 0,
-        .transformOffset = 0
-    };
+        vk::AccelerationStructureBuildRangeInfoKHR tlasRangeInfo{
+            .primitiveCount = primitiveCount,
+            .primitiveOffset = 0,
+            .firstVertex = 0,
+            .transformOffset = 0
+        };
 
-    m_commandManager.immediateSubmit([&](const vk::CommandBuffer cmd) {
-        cmd.buildAccelerationStructuresKHR({tlasBuildGeometryInfo}, {&tlasRangeInfo});
-    });
+        m_commandManager.immediateSubmit([&](const vk::CommandBuffer cmd) {
+            cmd.buildAccelerationStructuresKHR({tlasBuildGeometryInfo}, {&tlasRangeInfo});
+        });
+
+        m_tlasScratchBuffers.emplace_back(std::move(tlasScratchBuffer));
+        m_tlasScratchMemories.emplace_back(std::move(tlasScratchMemory));
+        m_tlasBuffers.emplace_back(std::move(tlasBuffer));
+        m_tlasMemories.emplace_back(std::move(tlasMemory));
+        m_tlasHandles.emplace_back(std::move(tlasHandle));
+    }
 }
 
 void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, const std::uint32_t frameIdx) const {
@@ -1190,11 +1269,11 @@ void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, 
     memcpy(m_uniformBuffersMapped[frameIdx], &ubo, sizeof(ubo));
 }
 
-void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild) {
+void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild, std::uint32_t frameIdx) {
     auto primitiveCount = static_cast<uint32_t>(scene.instances.size());
 
-    // Get pointer to persistently mapped buffer
-    auto* instancesPtr = static_cast<vk::AccelerationStructureInstanceKHR*>(m_blasInstancesBufferMapped);
+    // Get pointer to persistently mapped buffer for this frame
+    auto* instancesPtr = static_cast<vk::AccelerationStructureInstanceKHR*>(m_blasInstancesBuffersMapped[frameIdx]);
     
     // Only update transforms for animated instances
     std::uint32_t updatedCount = 0;
@@ -1228,7 +1307,7 @@ void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, b
     // No need to map/unmap - memory is persistently mapped and HostCoherent
     // so writes are automatically visible to the GPU
 
-    vk::BufferDeviceAddressInfo instanceAddrInfo{.buffer = m_blasInstancesBuffer};
+    vk::BufferDeviceAddressInfo instanceAddrInfo{.buffer = m_blasInstancesBuffers[frameIdx]};
     vk::DeviceAddress instanceAddr = m_vulkanCore.device().getBufferAddress(instanceAddrInfo);
 
     auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR{
@@ -1247,13 +1326,13 @@ void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, b
         .type = vk::AccelerationStructureTypeKHR::eTopLevel,
         .flags = vk::BuildAccelerationStructureFlagBitsKHR::eAllowUpdate,
         .mode = vk::BuildAccelerationStructureModeKHR::eUpdate,
-        .srcAccelerationStructure = m_tlas,
-        .dstAccelerationStructure = m_tlas,
+        .srcAccelerationStructure = m_tlasHandles[frameIdx],
+        .dstAccelerationStructure = m_tlasHandles[frameIdx],
         .geometryCount = 1,
         .pGeometries = &tlasGeometry
     };
 
-    vk::BufferDeviceAddressInfo scratchAddressInfo{.buffer = *m_tlasScratchBuffer};
+    vk::BufferDeviceAddressInfo scratchAddressInfo{.buffer = *m_tlasScratchBuffers[frameIdx]};
     vk::DeviceAddress scratchAddr = m_vulkanCore.device().getBufferAddress(scratchAddressInfo);
     tlasBuildGeometryInfo.scratchData.deviceAddress = scratchAddr;
 
@@ -1300,11 +1379,11 @@ void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, b
     });
 }
 
-void ResourceManager::recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene& scene, bool initialBuild) {
+void ResourceManager::recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene& scene, bool initialBuild, std::uint32_t frameIdx) {
     auto primitiveCount = static_cast<uint32_t>(scene.instances.size());
 
     // Get pointer to persistently mapped buffer
-    auto* instancesPtr = static_cast<vk::AccelerationStructureInstanceKHR*>(m_blasInstancesBufferMapped);
+    auto* instancesPtr = static_cast<vk::AccelerationStructureInstanceKHR*>(m_blasInstancesBuffersMapped[frameIdx]);
     
     // Only update transforms for animated instances
     std::uint32_t updatedCount = 0;
@@ -1337,7 +1416,7 @@ void ResourceManager::recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene
     
     // Memory is persistently mapped and HostCoherent - writes are visible to GPU
     
-    vk::BufferDeviceAddressInfo instanceAddrInfo{.buffer = m_blasInstancesBuffer};
+    vk::BufferDeviceAddressInfo instanceAddrInfo{.buffer = m_blasInstancesBuffers[frameIdx]};
     vk::DeviceAddress instanceAddr = m_vulkanCore.device().getBufferAddress(instanceAddrInfo);
 
     auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR{
@@ -1356,13 +1435,13 @@ void ResourceManager::recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene
         .type = vk::AccelerationStructureTypeKHR::eTopLevel,
         .flags = vk::BuildAccelerationStructureFlagBitsKHR::eAllowUpdate,
         .mode = vk::BuildAccelerationStructureModeKHR::eUpdate,
-        .srcAccelerationStructure = m_tlas,
-        .dstAccelerationStructure = m_tlas,
+        .srcAccelerationStructure = m_tlasHandles[frameIdx],
+        .dstAccelerationStructure = m_tlasHandles[frameIdx],
         .geometryCount = 1,
         .pGeometries = &tlasGeometry
     };
 
-    vk::BufferDeviceAddressInfo scratchAddressInfo{.buffer = *m_tlasScratchBuffer};
+    vk::BufferDeviceAddressInfo scratchAddressInfo{.buffer = *m_tlasScratchBuffers[frameIdx]};
     vk::DeviceAddress scratchAddr = m_vulkanCore.device().getBufferAddress(scratchAddressInfo);
     tlasBuildGeometryInfo.scratchData.deviceAddress = scratchAddr;
 

@@ -116,6 +116,21 @@ std::uint32_t VulkanCore::findMemoryType(const uint32_t typeFilter, const vk::Me
     throw std::runtime_error("failed to find suitable memory type!");
 }
 
+std::uint64_t VulkanCore::getAvailableVRAM() const {
+    const auto memProperties = m_physicalDevice.getMemoryProperties();
+    
+    std::uint64_t totalVRAM = 0;
+    
+    // Sum up all device-local heaps (VRAM)
+    for (uint32_t i = 0; i < memProperties.memoryHeapCount; i++) {
+        if (memProperties.memoryHeaps[i].flags & vk::MemoryHeapFlagBits::eDeviceLocal) {
+            totalVRAM += memProperties.memoryHeaps[i].size;
+        }
+    }
+    
+    return totalVRAM;
+}
+
 void VulkanCore::createInstance() {
     vk::ApplicationInfo appInfo{
         .pApplicationName = "Cyberpunk City Demo",

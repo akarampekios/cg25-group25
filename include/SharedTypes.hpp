@@ -24,6 +24,12 @@ struct BloomPushConstant {
     float scale;
 };
 
+struct TAAPushConstant {
+    glm::vec2 screenSize;
+    float blendFactor;
+    float _padding;
+};
+
 struct alignas(16) Material {
     glm::vec4 baseColorFactor;
 
@@ -172,6 +178,8 @@ struct alignas(16) UniformBufferObject {
     glm::mat4 proj;
     glm::mat4 viewInverse;
     glm::mat4 projInverse;
+    glm::mat4 prevView;      // TAA: Previous frame view matrix
+    glm::mat4 prevProj;      // TAA: Previous frame projection matrix
     glm::vec3 cameraPos;
     float time;
     std::uint32_t pointLightsCount;
@@ -179,7 +187,9 @@ struct alignas(16) UniformBufferObject {
     DirectionalLight directionalLight;
     std::int32_t skySphereInstanceIndex{-1};
     std::int32_t skySphereTextureIndex{-1};
-    glm::vec2 _padding2;
+    glm::vec2 jitterOffset;  // TAA: Sub-pixel jitter in pixels
     glm::vec3 fogColor;
     float fogDensity;
+    glm::vec2 screenSize;    // TAA: Screen dimensions for velocity calculation
+    glm::vec2 _padding3;
 };

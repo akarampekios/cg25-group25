@@ -95,7 +95,7 @@ public:
     }
 
     void allocateSceneResources(const Scene& scene);
-    void updateSceneResources(const Scene& scene, float time, std::uint32_t frameIdx);
+    void updateSceneResources(const Scene& scene, float time, std::uint32_t frameIdx, glm::vec2 jitterOffset = glm::vec2(0.0f));
     
     // Record TLAS update commands into the provided command buffer (if needed)
     void recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene& scene, bool initialBuild, std::uint32_t frameIdx);
@@ -170,6 +170,11 @@ private:
     
     std::vector<glm::mat4> m_cachedCameraViewProj;
     std::vector<bool> m_indirectDrawBuffersInitialized;
+    
+    // TAA: Previous frame matrices for velocity calculation
+    glm::mat4 m_prevViewMatrix{1.0f};
+    glm::mat4 m_prevProjMatrix{1.0f};
+    bool m_firstFrame{true};
 
     std::vector<vk::AccelerationStructureInstanceKHR> m_blasInstances;
 
@@ -214,7 +219,7 @@ private:
     void createBLASInstances(const Scene& scene);
     void createTLAS();
 
-    void updateUniformBuffer(const Scene& scene, float time, std::uint32_t frameIdx) const;
+    void updateUniformBuffer(const Scene& scene, float time, std::uint32_t frameIdx, glm::vec2 jitterOffset);
     void updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild, std::uint32_t frameIdx);
     void updateInstanceBuffers(const Scene& scene, std::uint32_t frameIdx);
     void updateMaterialBuffers(const Scene& scene, std::uint32_t frameIdx);

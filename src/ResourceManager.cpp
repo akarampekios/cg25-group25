@@ -347,8 +347,9 @@ void ResourceManager::allocateSceneResources(const Scene& scene) {
 
 void ResourceManager::updateSceneResources(const Scene& scene,
                                            const float time,
-                                           const std::uint32_t frameIdx) {
-    updateUniformBuffer(scene, time, frameIdx);
+                                           const std::uint32_t frameIdx,
+                                           glm::vec2 jitterOffset) {
+    updateUniformBuffer(scene, time, frameIdx, jitterOffset);
     updateInstanceBuffers(scene, frameIdx);
     updateLightBuffers(scene, frameIdx);
     updateIndirectDrawBuffers(scene, frameIdx);
@@ -1246,15 +1247,32 @@ void ResourceManager::createTLAS() {
     }
 }
 
-void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, const std::uint32_t frameIdx) const {
+void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, const std::uint32_t frameIdx, glm::vec2 jitterOffset) {
     const auto view = scene.camera.getView();
-    const auto proj = scene.camera.getProjection();
+    auto proj = scene.camera.getProjection();
+    
+    // TAA: Apply jitter to projection matrix
+    if constexpr (TAA_ENABLED) {
+        // Convert jitter from pixels to NDC
+        const float jitterX = (jitterOffset.x * 2.0f) / static_cast<float>(WINDOW_WIDTH);
+        const float jitterY = (jitterOffset.y * 2.0f) / static_cast<float>(WINDOW_HEIGHT);
+        
+        // Apply jitter to projection matrix (affects clip space position)
+        proj[2][0] += jitterX;
+        proj[2][1] += jitterY;
+    }
+    
+    // TAA: Get previous frame matrices (or current if first frame)
+    const glm::mat4 prevView = m_firstFrame ? view : m_prevViewMatrix;
+    const glm::mat4 prevProj = m_firstFrame ? scene.camera.getProjection() : m_prevProjMatrix;
 
     const UniformBufferObject ubo{
         .view = view,
         .proj = proj,
         .viewInverse = glm::inverse(view),
         .projInverse = glm::inverse(proj),
+        .prevView = prevView,
+        .prevProj = prevProj,
         .cameraPos = scene.camera.getPosition(),
         .time = time,
         .pointLightsCount = static_cast<std::uint32_t>(scene.pointLights.size()),
@@ -1262,11 +1280,18 @@ void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, 
         .directionalLight = scene.directionalLight,
         .skySphereInstanceIndex = scene.skySphereInstanceIndex,
         .skySphereTextureIndex = scene.skySphereTextureIndex,
+        .jitterOffset = jitterOffset,
         .fogColor = scene.fog.fogColor,
         .fogDensity = scene.fog.fogDensity,
+        .screenSize = glm::vec2(static_cast<float>(WINDOW_WIDTH), static_cast<float>(WINDOW_HEIGHT)),
     };
 
     memcpy(m_uniformBuffersMapped[frameIdx], &ubo, sizeof(ubo));
+    
+    // TAA: Store current matrices for next frame
+    m_prevViewMatrix = view;
+    m_prevProjMatrix = scene.camera.getProjection();  // Store unjittered projection
+    m_firstFrame = false;
 }
 
 void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild, std::uint32_t frameIdx) {

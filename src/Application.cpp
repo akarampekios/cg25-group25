@@ -84,13 +84,14 @@ void Application::run() {
         );
     
     const std::string scenePath = "assets/scene_full.glb";
+    std::cout << "[Init] Loading scene: " << scenePath << std::endl;
     if (!std::filesystem::exists(scenePath)) {
         throw std::runtime_error("Scene file not found: " + scenePath);
     }
 
     auto loaded = gltfLoader.load(scenePath);
-
     resourceManager.allocateSceneResources(loaded->scene);
+    std::cout << "[Init] Scene loaded successfully!" << std::endl;
 
     if (m_audioEngine && m_backgroundMusic) {
         if (ma_sound_init_from_file(m_audioEngine, "assets/soundtrack_2.mp3", 
@@ -107,6 +108,8 @@ void Application::run() {
     double lastTime = startTime;
     double lastFPSTime = startTime;
     int frameCount = 0;
+    
+    std::cout << "[Render] Entering render loop..." << std::endl;
     
     while (!glfwWindowShouldClose(m_window)) {
         glfwPollEvents();

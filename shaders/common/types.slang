@@ -6,6 +6,8 @@ public struct VsOutput {
    public float3 inWorldTangent: TEXCOORD3;
    public float  handedness    : TEXCOORD4;
    public nointerpolation uint instanceIndex : TEXCOORD5; // Pass instance index to fragment shader
+   public float4 currClipPos   : TEXCOORD6;
+   public float4 prevClipPos   : TEXCOORD7;
 };
 
 public struct Vertex {
@@ -96,6 +98,8 @@ public struct SceneDataUBO {
     public float4x4 proj;
     public float4x4 viewInverse;
     public float4x4 projInverse;
+    public float4x4 prevView;
+    public float4x4 prevProj;
     public float3 cameraPos;
     public float time;
     public uint pointLightsCount;
@@ -103,9 +107,11 @@ public struct SceneDataUBO {
     public DirectionalLight directionalLight;
     public int skySphereInstanceIndex;
     public int skySphereTextureIndex;
-    public float2 _padding2;
+    public float2 jitterOffset;
     public float3 fogColor;
     public float fogDensity;
+    public float2 screenSize;
+    public float2 _padding3;
 };
 
 public struct ResolvedSurfaceParameters {

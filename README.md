@@ -9,6 +9,7 @@ A real-time rendering demo showcasing ray tracing and volumetric lighting effect
 - **PBR materials** with emissive neon lighting
 - **Real-time vehicle movement** on predefined paths
 - **Post-processing effects** including bloom and tone mapping
+- **Temporal Anti-Aliasing (TAA)** for smooth edge rendering and reduced flickering
 
 ## Hybrid Rendering Architecture
 
@@ -32,6 +33,17 @@ This project uses a **hybrid rasterization + ray tracing** approach for optimal 
 - **Ambient Occlusion**: Pre-baked into textures during asset creation (loaded from GLTF models)
 - **Indirect Diffuse**: Approximated by sampling skybox texture based on surface normal
 
+## Temporal Anti-Aliasing (TAA)
+
+The project implements TAA as the primary anti-aliasing solution, replacing traditional MSAA:
+
+- **Sub-pixel Jittering**: Camera projection is jittered each frame using a Halton(2,3) sequence
+- **Motion Vectors**: Per-pixel velocity buffer tracks screen-space movement for accurate reprojection
+- **History Blending**: Current frame blended with reprojected history (90% history, 10% current)
+- **Neighborhood Clamping**: YCoCg color space clamping prevents ghosting artifacts on fast-moving objects
+
+TAA provides superior anti-aliasing quality compared to MSAA while using less memory and handling shader aliasing (specular highlights, thin geometry) that MSAA cannot address.
+
 ## Performance Optimizations
 
 The project implements several key optimizations for real-time performance:
@@ -43,6 +55,8 @@ The project implements several key optimizations for real-time performance:
 - **Instance Masks**: Per-object ray visibility masks (0x01 = reflective, 0x02 = shadow-casting) allow fine-grained control over which rays hit which geometry
 - **Frustum Culling**: CPU-side frustum culling eliminates draw calls for objects outside the camera view before GPU submission
 - **Indirect Drawing**: Multi-draw indirect commands batch multiple draw calls into a single GPU submission with minimal CPU overhead
+- **TAA over MSAA**: Temporal Anti-Aliasing replaces MSAA for better quality anti-aliasing with lower memory overhead
+- **Adaptive Texture Quality**: Automatic texture resolution scaling based on available VRAM (512px-8K)
 
 ## External Resources
 

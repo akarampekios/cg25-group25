@@ -21,7 +21,16 @@ VsOutput main(
     result.inWorldPos = worldPos.xyz;
     result.instanceIndex = instanceID;
     
+    // Current frame clip position (with jitter applied via projection matrix)
     result.position = mul(sceneData.scene.proj, mul(sceneData.scene.view, worldPos));
+    result.currClipPos = result.position;
+    
+    // Previous frame clip position (for TAA velocity calculation)
+    // Note: For static objects, we use the same world position
+    // For animated objects, you would need to store previous frame transforms
+    float4 prevClipPos = mul(sceneData.scene.prevProj, mul(sceneData.scene.prevView, worldPos));
+    result.prevClipPos = prevClipPos;
+    
     result.inWorldNormal = normalize(mul(normalMatrix, vertex.normal));
     result.inWorldTangent = normalize(mul((float3x3)modelMatrix, vertex.tangent.xyz));
     result.handedness = vertex.tangent.w;
@@ -29,6 +38,8 @@ VsOutput main(
     // Force SkySphere to the far plane
     if (instanceID == sceneData.scene.skySphereInstanceIndex) {
         result.position.z = -result.position.w;
+        // Sky sphere has no motion (it follows camera)
+        result.prevClipPos = result.currClipPos;
     }
 
     return result;

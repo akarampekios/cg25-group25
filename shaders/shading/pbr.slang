@@ -97,8 +97,10 @@ float3 shadeHitPoint(
     // For reflections, we only want the material's base appearance to avoid double-counting direct lighting
     // NOTE: with lights on, reflections do not look much better, so we skip it entirely
     if (!computeDirectLighting) {
-        // Return albedo with a subtle ambient factor plus emissive
-        return surfaceParams.albedo * 0.5 + surfaceParams.emissive;
+        // Return albedo with a subtle ambient factor plus clamped emissive
+        // Clamp emissive to prevent fireflies from very bright emissive surfaces
+        float3 clampedEmissive = min(surfaceParams.emissive, float3(2.0, 2.0, 2.0));
+        return surfaceParams.albedo * 0.5 + clampedEmissive;
     }
 
     // Full lighting path (used for primary rays, not reflections)
@@ -250,7 +252,9 @@ public ResolvedSurfaceParameters resolveSurfaceParameters(
         int uniformIndex = NonUniformResourceIndex(material.metallicRoughnessTexIndex);
         float4 mrSample = materialData.metallicRoughnessTextures[uniformIndex].Sample(uv);
         resolved.metallic = mrSample.b;
-        resolved.roughness = mrSample.g;
+        // Clamp texture roughness to minimum value to prevent specular aliasing/fireflies
+        // Very low roughness (near 0) causes GGX distribution to spike, creating bright patches
+        resolved.roughness = max(mrSample.g, 0.04);
     }
 
     if (material.occlusionTexIndex >= 0) {
@@ -309,6 +313,10 @@ float3 computeDirectionalLightRadiance(
     float3 numerator = D * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001;
     float3 specular = numerator / denominator;
+    
+    // Clamp specular to prevent fireflies at grazing angles
+    // Even with roughness clamped, D*G/denom can spike when NdotV or NdotL are near 0
+    specular = min(specular, float3(10.0, 10.0, 10.0));
 
     float3 result = (kD * surface.albedo / PI + specular) * radiance;
 
@@ -383,6 +391,9 @@ float3 computePointLightRadiance(
         float3 numerator = D * G * F;
         float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001;
         float3 specular = numerator / denominator;
+        
+        // Clamp specular to prevent fireflies at grazing angles
+        specular = min(specular, float3(10.0, 10.0, 10.0));
 
         float3 result = (kD * surface.albedo / PI + specular) * radiance;
 
@@ -479,6 +490,9 @@ float3 computeSpotLightRadiance(
         float3 numerator = D * G * F;
         float denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + 0.001;
         float3 specular = numerator / denominator;
+        
+        // Clamp specular to prevent fireflies at grazing angles
+        specular = min(specular, float3(10.0, 10.0, 10.0));
 
         float3 result = (kD * surface.albedo / PI + specular) * radiance;
 
@@ -645,6 +659,10 @@ float3 computeIndirectLighting(
                 // it is cheaper and does not add much visual quality
                 false 
             );
+
+            // Clamp reflection irradiance to prevent fireflies from bright surfaces
+            // This limits the maximum brightness a single reflection sample can contribute
+            irradiance = min(irradiance, float3(3.0, 3.0, 3.0));
 
             specularContribution = irradiance * specularWeight;
         }

@@ -5,11 +5,13 @@ A real-time rendering demo showcasing ray tracing and volumetric lighting effect
 ## Features
 
 - **Ray-traced reflections** using Vulkan RTX
-- **Volumetric lighting** with light shafts and fog
-- **PBR materials** with emissive neon lighting
+- **Ray-traced shadows** using Vulkan RTX
+- **PBR materials and Lighting** with emissive neon lighting
+- **Bloom and Distance Fog Effects** in a multipipeline/multipass setup
 - **Real-time vehicle movement** on predefined paths
-- **Post-processing effects** including bloom and tone mapping
-- **Temporal Anti-Aliasing (TAA)** for smooth edge rendering and reduced flickering
+- **Post-processing pipeline** containing bloom and tone mapping
+- **Transparency Support** using additional rendering passes
+- **MSAA or Temporal Anti-Aliasing (TAA)** for smooth edge rendering and reduced flickering
 
 ## **Controls**
 
@@ -46,6 +48,8 @@ This project uses a **hybrid rasterization + ray tracing** approach for optimal 
 - **Ambient Occlusion**: Pre-baked into textures during asset creation (loaded from GLTF models)
 - **Indirect Diffuse**: Approximated by sampling skybox texture based on surface normal
 
+todo: add a section about msaa
+
 ## Temporal Anti-Aliasing (TAA)
 
 The project implements TAA as the primary anti-aliasing solution, replacing traditional MSAA:
@@ -68,7 +72,7 @@ The project implements several key optimizations for real-time performance:
 - **Instance Masks**: Per-object ray visibility masks (0x01 = reflective, 0x02 = shadow-casting) allow fine-grained control over which rays hit which geometry
 - **Frustum Culling**: CPU-side frustum culling eliminates draw calls for objects outside the camera view before GPU submission
 - **Indirect Drawing**: Multi-draw indirect commands batch multiple draw calls into a single GPU submission with minimal CPU overhead
-- **TAA over MSAA**: Temporal Anti-Aliasing replaces MSAA for better quality anti-aliasing with lower memory overhead
+- **TAA or MSAA**: Temporal Anti-Aliasing replaces MSAA for better quality anti-aliasing with lower memory overhead (when enabled)
 - **Adaptive Texture Quality**: Automatic texture resolution scaling based on available VRAM (512px-8K)
 
 ## External Resources
@@ -85,17 +89,28 @@ The project implements several key optimizations for real-time performance:
 - Windows 10/11 with latest updates
 - Any C++ IDE, preferably supporting CMake Projects, such as CLion, VS Code, or Visual Studio
 - Vulkan SDK 1.4+ (slangc must be on PATH)
-- NVIDIA RTX 2070 (or better) with updated drivers
+- NVIDIA RTX 3070 (or better) with updated drivers
 - CMake 3.20+
 
 ### Quick Start
 
+**1. Clone the repo**
+
 ```powershell
-git clone <repository-url>
+git clone https://github.com/akarampekios/cg25-group25.git
+```
+
+**2. Download the scene resources**
+
+1. Download resources: https://drive.google.com/drive/folders/1xk8Wu9cH5RofmuqMPcwWDUX4sHjm585d?usp=sharing
+2. Unpack the resources to resources/models, resources/scenes, and assets/
+
+**3. Build & Run**
+
+```powershell
 cd CyberpunkCityDemo
 git submodule update --init --recursive
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+.\build.bat
 ```
 
 The compiled binary lives at `build/bin/Release/CyberpunkCityDemo.exe`. Assets and shaders are copied automatically when you build.

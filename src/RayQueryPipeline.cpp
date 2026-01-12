@@ -501,6 +501,21 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
         vk::PipelineStageFlagBits2::eColorAttachmentOutput,
         vk::ImageAspectFlagBits::eColor
         );
+    
+    // Transition MSAA velocity image if MSAA is enabled
+    if (m_msaaSamples != vk::SampleCountFlagBits::e1) {
+        m_imageManager.transitionImageLayout(
+            m_velocityMsaaImage,
+            cmd,
+            vk::ImageLayout::eUndefined,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            {},
+            vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eTopOfPipe,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            vk::ImageAspectFlagBits::eColor
+            );
+    }
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0F, 0.0F, 0.0F, 1.0F);
     constexpr vk::ClearValue clearVelocity = vk::ClearColorValue(0.0F, 0.0F, 0.0F, 0.0F);  // Zero velocity
@@ -530,14 +545,30 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
         };
     }
     
-    // TAA: Velocity attachment (always single-sample, even with MSAA)
-    vk::RenderingAttachmentInfo velocityAttachmentInfo = {
-        .imageView = m_velocityImageViews[m_currentFrame],
-        .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-        .loadOp = vk::AttachmentLoadOp::eClear,
-        .storeOp = vk::AttachmentStoreOp::eStore,
-        .clearValue = clearVelocity
-    };
+    // Velocity attachment - must match MSAA sample count of color attachment
+    vk::RenderingAttachmentInfo velocityAttachmentInfo;
+    if (m_msaaSamples != vk::SampleCountFlagBits::e1) {
+        // MSAA enabled: render to MSAA velocity image and resolve to single-sample
+        velocityAttachmentInfo = {
+            .imageView = m_velocityMsaaImageView,
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .resolveMode = vk::ResolveModeFlagBits::eAverage,
+            .resolveImageView = m_velocityImageViews[m_currentFrame],
+            .resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .clearValue = clearVelocity
+        };
+    } else {
+        // No MSAA: render directly to single-sample velocity image
+        velocityAttachmentInfo = {
+            .imageView = m_velocityImageViews[m_currentFrame],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .clearValue = clearVelocity
+        };
+    }
     
     // TAA: Array of color attachments (color + velocity)
     std::array<vk::RenderingAttachmentInfo, 2> colorAttachments = {

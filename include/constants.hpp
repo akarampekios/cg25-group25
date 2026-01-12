@@ -26,9 +26,9 @@ static constexpr std::uint32_t POST_PROCESSING_BLUR_PASSES = 4; // More passes =
 static constexpr vk::Format POST_PROCESSING_IMAGE_FORMAT = vk::Format::eR16G16B16A16Sfloat;
 
 // TAA (Temporal Anti-Aliasing) Configuration
-constexpr bool TAA_ENABLED = true;  // Enable TAA (disables MSAA when true)
+constexpr bool TAA_ENABLED = false;  // Enable TAA (disables MSAA when true)
 constexpr float TAA_BLEND_FACTOR = 0.2f;  // α: 0.2 = 80% history, 20% current (was 0.1 - increased for faster response)
-constexpr std::uint32_t TAA_JITTER_SEQUENCE_LENGTH = 16;  // Halton sequence length before repeat
+constexpr std::uint32_t TAA_JITTER_SEQUENCE_LENGTH = 16;  // Halton sequence length beforel repeat
 static constexpr vk::Format VELOCITY_BUFFER_FORMAT = vk::Format::eR16G16Sfloat;  // RG16F for motion vectors
 
 constexpr float GLTF_DIRECTIONAL_LIGHT_INTENSITY_CONVERSION_FACTOR = 50000.0;

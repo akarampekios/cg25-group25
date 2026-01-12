@@ -393,7 +393,7 @@ float3 computePointLightRadiance(
         float3 specular = numerator / denominator;
         
         // Clamp specular to prevent fireflies at grazing angles
-        specular = min(specular, float3(10.0, 10.0, 10.0));
+        specular = min(specular, float3(0.1, 0.1, 0.1));
 
         float3 result = (kD * surface.albedo / PI + specular) * radiance;
 

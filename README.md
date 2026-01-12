@@ -4,18 +4,18 @@ A real-time rendering demo showcasing ray tracing and volumetric lighting effect
 
 ## Features
 
-- **Ray-traced reflections** using Vulkan RTX
-- **Ray-traced shadows** using Vulkan RTX
-- **PBR materials and Lighting** with emissive neon lighting
-- **Bloom and Distance Fog Effects** in a multipipeline/multipass setup
-- **Real-time vehicle movement** on predefined paths
-- **Post-processing pipeline** containing bloom and tone mapping
-- **Transparency Support** using additional rendering passes
-- **MSAA or Temporal Anti-Aliasing (TAA)** for smooth edge rendering and reduced flickering
+- **Ray-traced reflections \[Vlad\]** using Vulkan RTX
+- **Ray-traced shadows \[Vlad\]** using Vulkan RTX
+- **PBR materials and Lighting \[Vlad\]** with emissive neon lighting
+- **Bloom and Distance Fog Effects \[Vlad\]** in a multipipeline/multipass setup
+- **Real-time vehicle movement \[Tasos\]** on predefined paths
+- **Post-processing pipeline \[Tasos\]** containing bloom and tone mapping
+- **Transparency Support \[Tasos\]** using additional rendering passes
+- **MSAA or Temporal Anti-Aliasing (TAA) \[Tasos\]** for smooth edge rendering and reduced flickering
 
 ## **Controls**
 
-### **Free Camera Mode**
+### **Free Camera Mode  \[Tasos\]**
 Toggle between Cinematic and Free Camera modes by pressing **`F`**.
 
 | Key | Action |
@@ -30,11 +30,11 @@ Toggle between Cinematic and Free Camera modes by pressing **`F`**.
 
 This project uses a **hybrid rasterization + ray tracing** approach for optimal real-time performance:
 
-- **Rasterization**: Traditional graphics pipeline renders the base scene geometry (vertex + fragment shaders)
-- **Inline Ray Queries**: Fragment shader selectively shoots rays using `TraceRayInline()` for specific effects
-- **Ray-Traced Shadows**: Shadow rays test occlusion from directional, point, and spot lights
-- **Ray-Traced Reflections**: Reflection rays only traced for smooth/metallic surfaces (roughness < 0.3)
-- **Acceleration Structures**: BLAS/TLAS enable fast ray-geometry intersection tests (~2-6 rays per pixel)
+- **Rasterization \[Tasos\]**: Traditional graphics pipeline renders the base scene geometry (vertex + fragment shaders)
+- **Inline Ray Queries  \[Vlad\]**: Fragment shader selectively shoots rays using `TraceRayInline()` for specific effects
+- **Ray-Traced Shadows \[Vlad\]**: Shadow rays test occlusion from directional, point, and spot lights
+- **Ray-Traced Reflections \[Vlad\]**: Reflection rays only traced for smooth/metallic surfaces (roughness < 0.3)
+- **Acceleration Structures \[Vlad\]**: BLAS/TLAS enable fast ray-geometry intersection tests (~2-6 rays per pixel)
 
 ### What Ray Tracing Actually Computes
 

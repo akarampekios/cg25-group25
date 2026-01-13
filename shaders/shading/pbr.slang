@@ -273,9 +273,8 @@ public ResolvedSurfaceParameters resolveSurfaceParameters(
 
         float3 orthoT = normalize(T - dot(T, N) * N);
         float3 B = cross(N, orthoT) * handedness;
-        float3x3 TBN = float3x3(orthoT, B, N);
-
-        resolved.normal = normalize(mul(TBN, tangentNormal));
+        
+        resolved.normal = normalize(tangentNormal.x * orthoT + tangentNormal.y * B + tangentNormal.z * N);
     }
 
     return resolved;

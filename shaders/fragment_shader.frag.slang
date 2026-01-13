@@ -86,6 +86,15 @@ FragmentOutput main(
     // Check if reflections are enabled for this material and instance
     bool enableReflections = (material.reflective != 0) || (instance.reflective != 0);
 
+    // Use normal-mapped normal, but ensure it doesn't point away from the viewer
+    // This prevents completely dark surfaces from normal map artifacts
+    float3 shadingNormal = surfaceParams.normal;
+    float NdotV = dot(shadingNormal, V);
+    if (NdotV <= 0.0) {
+        // Normal is pointing away from view - use geometric normal instead
+        shadingNormal = N;
+    }
+
     float3 color = shadeFragment(
         surfaceParams,
         g_sceneData,
@@ -93,7 +102,7 @@ FragmentOutput main(
         g_lightData,
         IN.inWorldPos,
         V,
-        N,
+        shadingNormal,
         enableReflections
     );
 

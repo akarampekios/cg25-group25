@@ -37,7 +37,7 @@ VsOutput main(
 
     // Force SkySphere to the far plane
     if (instanceID == sceneData.scene.skySphereInstanceIndex) {
-        result.position.z = -result.position.w;
+        result.position.z = abs(result.position.w);
         // Sky sphere has no motion (it follows camera)
         result.prevClipPos = result.currClipPos;
     }

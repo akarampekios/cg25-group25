@@ -670,9 +670,8 @@ void ResourceManager::createSkyboxImage(const Scene& scene) {
 
     auto texture = scene.emissiveTextures[scene.skySphereTextureIndex];
     
-    // Skybox texture: limit mip levels and force safe RGBA format
+    // Skybox texture: limit mip levels (keep original format - may be HDR 16-bit)
     texture.mipLevels = 1;
-    texture.format = vk::Format::eR8G8B8A8Srgb;
 
     m_imageManager.createImageFromTexture(
         texture,

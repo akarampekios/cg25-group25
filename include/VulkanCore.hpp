@@ -45,6 +45,8 @@ public:
 
     std::uint32_t findMemoryType(const uint32_t typeFilter, const vk::MemoryPropertyFlags properties) const;
 
+    std::uint64_t getAvailableVRAM() const;
+
 private:
     void createInstance();
     void setupDebugMessenger();

@@ -23,9 +23,15 @@ float4 main(
 
     float brightness = lerp(luminance, maxComponent, 0.6) + saturation * 0.3;
 
-    if (brightness > bloomParams.threshold) {
-        return float4(color, 1.0);
-    }
+    // Soft knee threshold - smooth transition instead of hard cutoff
+    // This prevents blocky edges in the bloom
+    float threshold = bloomParams.threshold;
+    float knee = threshold * 0.5;  // Soft knee width
+    float softThreshold = threshold - knee;
     
-    return float4(0.0, 0.0, 0.0, 1.0);
+    // Smooth quadratic falloff from softThreshold to threshold
+    float contribution = clamp((brightness - softThreshold) / (2.0 * knee + 0.0001), 0.0, 1.0);
+    contribution *= contribution;  // Quadratic curve for smoother falloff
+    
+    return float4(color * contribution, 1.0);
 }

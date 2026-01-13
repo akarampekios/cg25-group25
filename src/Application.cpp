@@ -1,4 +1,7 @@
 #include <iostream>
+#include <filesystem>
+#include <thread>
+#include <chrono>
 #include <glm/gtc/matrix_transform.hpp>
 
 // Include miniaudio implementation in this ONE cpp file only
@@ -82,8 +85,12 @@ void Application::run() {
         postProcessingStack
         );
     
-    auto loaded = gltfLoader.load("assets/scene_full.glb");
+    const std::string scenePath = "assets/scene_full.glb";
+    if (!std::filesystem::exists(scenePath)) {
+        throw std::runtime_error("Scene file not found: " + scenePath);
+    }
 
+    auto loaded = gltfLoader.load(scenePath);
     resourceManager.allocateSceneResources(loaded->scene);
 
     if (m_audioEngine && m_backgroundMusic) {
@@ -102,6 +109,15 @@ void Application::run() {
     double lastFPSTime = startTime;
     int frameCount = 0;
     
+    // Frame pacing: target 60 FPS (16.67ms per frame)
+    const double targetFrameTime = 1.0 / 60.0;
+    double frameStartTime = startTime;
+    
+    // Initialize free camera
+    m_freeCamera.setPosition(loaded->scene.camera.getPosition());
+
+    std::cout << "[Render] Entering render loop..." << std::endl;
+    
     while (!glfwWindowShouldClose(m_window)) {
         glfwPollEvents();
         
@@ -109,20 +125,60 @@ void Application::run() {
         const double deltaTime = currentTime - lastTime;
         lastTime = currentTime;
         
-        const float animationTime = static_cast<float>(currentTime - startTime);
+        // Frame pacing: limit frame rate to prevent queue buildup
+        // The fence wait in drawFrame() already handles GPU sync, but we pace CPU-side
+        // to prevent submitting too many frames ahead of the GPU
+        const double elapsedSinceFrameStart = currentTime - frameStartTime;
+        if (elapsedSinceFrameStart < targetFrameTime) {
+            // Sleep to avoid busy-waiting (only if significant time remaining)
+            const double sleepTime = (targetFrameTime - elapsedSinceFrameStart) * 1000.0;
+            if (sleepTime > 1.0) {  // Only sleep if more than 1ms
+                std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int>(sleepTime * 1000)));
+            }
+        }
+        frameStartTime = currentTime;
         
-        animator.animate(loaded->model, loaded->scene, animationTime);
-        rayQueryPipeline.drawFrame(loaded->scene);
+        // Toggle camera mode with F key (debounced)
+        bool fKeyDown = glfwGetKey(m_window, GLFW_KEY_F) == GLFW_PRESS;
+        if (fKeyDown && !m_fKeyPressed) {
+            m_useFreeCam = !m_useFreeCam;
+            
+            if (m_useFreeCam) {
+                // Switched to free camera
+                m_freeCamera.setPosition(loaded->scene.camera.getPosition());
+                // Capture mouse
+                glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                std::cout << "Free Camera: ENABLED (WASD=move, Mouse=look, Shift=sprint, F=toggle)" << std::endl;
+                m_freeCamera.resetMouse(m_window);
+            } else {
+                // Switched back to animated camera
+                glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                std::cout << "Free Camera: DISABLED (cinematic path active)" << std::endl;
+            }
+        }
+        m_fKeyPressed = fKeyDown;
+
+        const float animationTime = static_cast<float>(currentTime - startTime) * 0.5f; // Quarter speed (half of previous half speed)
+        
+        if (m_useFreeCam) {
+            m_freeCamera.update(m_window, static_cast<float>(deltaTime));
+            loaded->scene.camera.model = m_freeCamera.getModelMatrix();
+        } else {
+            animator.animate(loaded->model, loaded->scene, animationTime);
+        }
+        
+        rayQueryPipeline.drawFrame(loaded->scene, animationTime);
         
         // FPS Counter (update every second)
-        // We should prob delete this later before presentation build
         frameCount++;
         if (currentTime - lastFPSTime >= 1.0) {
             const double fps = frameCount / (currentTime - lastFPSTime);
             const double avgFrameTime = (currentTime - lastFPSTime) / frameCount * 1000.0;
+            const double lastDeltaMs = deltaTime * 1000.0;
+            
             std::cout << "FPS: " << static_cast<int>(fps) 
-                      << " | Avg Frame Time: " << avgFrameTime << "ms" 
-                      << " | Last Delta: " << deltaTime * 1000.0 << "ms" << std::endl;
+                      << " | Avg: " << avgFrameTime << "ms" 
+                      << " | Last: " << lastDeltaMs << "ms" << std::endl;
             frameCount = 0;
             lastFPSTime = currentTime;
         }
@@ -152,4 +208,8 @@ void Application::createWindow() {
 
 void Application::initVulkanCore() {
     m_vulkanCore = std::make_unique<VulkanCore>(m_window);
+    
+    // Initialize texture settings based on available VRAM
+    const std::uint64_t availableVRAM = m_vulkanCore->getAvailableVRAM();
+    initializeTextureSettings(availableVRAM);
 }

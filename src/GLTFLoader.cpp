@@ -219,7 +219,14 @@ void GLTFLoader::loadMaterialsAndTextures(const tinygltf::Model& model, Scene& s
         loadTextureMap(pbr.baseColorTexture.index, m_gltfBaseColorTextureMap, scene.baseColorTextures, parsedMaterial.baseColorTexIndex, model);
         loadTextureMap(pbr.metallicRoughnessTexture.index, m_gltfMetallicTextureMap, scene.metallicRoughnessTextures, parsedMaterial.metallicRoughnessTexIndex, model);
         loadTextureMap(gltfMat.normalTexture.index, m_gltfNormalTextureMap, scene.normalTextures, parsedMaterial.normalTexIndex, model);
-        loadTextureMap(gltfMat.emissiveTexture.index, m_gltfEmissiveTextureMap, scene.emissiveTextures, parsedMaterial.emissiveTexIndex, model);
+        
+        // Skip emissive textures if configured (GPU compatibility mode)
+        if (g_textureConfig.skipEmissiveTextures) {
+            parsedMaterial.emissiveTexIndex = -1;
+        } else {
+            loadTextureMap(gltfMat.emissiveTexture.index, m_gltfEmissiveTextureMap, scene.emissiveTextures, parsedMaterial.emissiveTexIndex, model);
+        }
+        
         loadTextureMap(gltfMat.occlusionTexture.index, m_gltfOcclusionTextureMap, scene.occlusionTextures, parsedMaterial.occlusionTexIndex, model);
     }
 }
@@ -243,15 +250,35 @@ Texture GLTFLoader::loadTexture(const tinygltf::Texture& texture, const tinygltf
         }
     }
 
-    const auto mipLevels = static_cast<std::uint32_t>(std::floor(
-                               std::log2(std::max(image.width, image.height)))) + 1;
+    // Apply texture dimension limits to reduce VRAM usage (dynamic based on available VRAM)
+    std::uint32_t width = static_cast<std::uint32_t>(image.width);
+    std::uint32_t height = static_cast<std::uint32_t>(image.height);
+    std::vector<unsigned char> processedImage = image.image;
+
+    if (g_textureConfig.enableDownscaling && (width > g_textureConfig.maxTextureDimension || height > g_textureConfig.maxTextureDimension)) {
+        // Calculate downscale factor
+        const float scale = static_cast<float>(g_textureConfig.maxTextureDimension) / static_cast<float>(std::max(width, height));
+        const std::uint32_t newWidth = static_cast<std::uint32_t>(width * scale);
+        const std::uint32_t newHeight = static_cast<std::uint32_t>(height * scale);
+
+        // Simple box filter downsampling
+        processedImage = downscaleImage(image.image, width, height, newWidth, newHeight, image.component);
+        
+        width = newWidth;
+        height = newHeight;
+    }
+
+    // Calculate mip levels with limit to reduce memory usage (dynamic based on available VRAM)
+    const auto fullMipLevels = static_cast<std::uint32_t>(std::floor(
+                               std::log2(std::max(width, height)))) + 1;
+    const auto mipLevels = std::min(fullMipLevels, g_textureConfig.maxMipLevels);
 
     return {
         .format = format,
         .mipLevels = mipLevels,
-        .width = static_cast<std::uint32_t>(image.width),
-        .height = static_cast<std::uint32_t>(image.height),
-        .image = image.image,
+        .width = width,
+        .height = height,
+        .image = processedImage,
     };
 }
 
@@ -464,19 +491,24 @@ void GLTFLoader::loadLightNode(const tinygltf::Light& light, std::size_t nodeIdx
 }
 
 void GLTFLoader::loadSkySphereNode(const tinygltf::Node& node, const tinygltf::Model& model, Scene& scene) {
+    const auto instanceIndex = m_gltfPrimitiveToEngineGeometry[node.mesh][0];
+    scene.skySphereInstanceIndex = instanceIndex;
+
+    // Skip sky sphere texture when emissive textures are disabled
+    if (g_textureConfig.skipEmissiveTextures) {
+        scene.skySphereTextureIndex = -1;
+        return;
+    }
+
     const auto& prim = model.meshes[node.mesh].primitives[0];
     const auto& gltfMat = model.materials[prim.material];
     const auto gltfTexIdx = gltfMat.emissiveTexture.index;
 
-    const auto instanceIndex = m_gltfPrimitiveToEngineGeometry[node.mesh][0];
     const auto textureIndex = m_gltfEmissiveTextureMap[gltfTexIdx];
 
-    scene.skySphereInstanceIndex = instanceIndex;
     scene.skySphereTextureIndex = textureIndex;
 
     scene.emissiveTextures[textureIndex].skyTexture = true;
-    scene.emissiveTextures[textureIndex].mipLevels = 1;
-    // scene.emissiveTextures[textureIndex].format = vk::Format::eR32G32B32A32Sint;
 }
 
 Geometry GLTFLoader::loadPrimitive(const tinygltf::Primitive& prim, const tinygltf::Model& model) {
@@ -492,15 +524,12 @@ Geometry GLTFLoader::loadPrimitive(const tinygltf::Primitive& prim, const tinygl
         return parsedMesh;
     }
     if (normIt == prim.attributes.end()) {
-        std::cerr << "WARNING: Primitive missing NORMAL attribute, skipping" << std::endl;
         return parsedMesh;
     }
     if (uvIt == prim.attributes.end()) {
-        std::cerr << "WARNING: Primitive missing TEXCOORD_0 attribute, skipping" << std::endl;
         return parsedMesh;
     }
     if (tanIt == prim.attributes.end()) {
-        std::cerr << "WARNING: Primitive missing TANGENT attribute, skipping" << std::endl;
         return parsedMesh;
     }
 
@@ -656,4 +685,34 @@ void GLTFLoader::buildMeshToInstanceMapping(Scene& scene) {
             scene.meshToInstanceIndices[instance.meshIndex].push_back(instanceIdx);
         }
     }
+}
+
+std::vector<unsigned char> GLTFLoader::downscaleImage(const std::vector<unsigned char>& srcImage,
+                                                       const std::uint32_t srcWidth,
+                                                       const std::uint32_t srcHeight,
+                                                       const std::uint32_t dstWidth,
+                                                       const std::uint32_t dstHeight,
+                                                       const int components) {
+    std::vector<unsigned char> dstImage(dstWidth * dstHeight * components);
+
+    const float xRatio = static_cast<float>(srcWidth) / static_cast<float>(dstWidth);
+    const float yRatio = static_cast<float>(srcHeight) / static_cast<float>(dstHeight);
+
+    // Simple box filter downsampling
+    for (std::uint32_t y = 0; y < dstHeight; y++) {
+        for (std::uint32_t x = 0; x < dstWidth; x++) {
+            // Calculate the source region
+            const std::uint32_t srcX = static_cast<std::uint32_t>(x * xRatio);
+            const std::uint32_t srcY = static_cast<std::uint32_t>(y * yRatio);
+
+            // Sample from source
+            for (int c = 0; c < components; c++) {
+                const std::uint32_t srcIndex = (srcY * srcWidth + srcX) * components + c;
+                const std::uint32_t dstIndex = (y * dstWidth + x) * components + c;
+                dstImage[dstIndex] = srcImage[srcIndex];
+            }
+        }
+    }
+
+    return dstImage;
 }

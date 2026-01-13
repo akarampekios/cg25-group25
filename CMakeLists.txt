@@ -27,9 +27,39 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 # Find packages
 find_package(Vulkan REQUIRED)
 
-find_program(SLANGC_EXECUTABLE NAMES slangc HINTS ENV VULKAN_SDK)
+# Find slangc executable - check multiple possible locations
+# First try the VULKAN_SDK environment variable
+if(DEFINED ENV{VULKAN_SDK})
+    find_program(SLANGC_EXECUTABLE 
+        NAMES slangc slangc.exe
+        PATHS "$ENV{VULKAN_SDK}/Bin"
+        NO_DEFAULT_PATH
+    )
+endif()
+# If not found, try common Vulkan SDK installation paths
 if(NOT SLANGC_EXECUTABLE)
-    message(FATAL_ERROR "slangc not found. Please ensure Vulkan SDK is installed and slangc is in your PATH.")
+    file(GLOB VULKAN_SDK_DIRS "C:/VulkanSDK/*")
+    foreach(SDK_DIR ${VULKAN_SDK_DIRS})
+        if(IS_DIRECTORY "${SDK_DIR}/Bin")
+            find_program(SLANGC_EXECUTABLE 
+                NAMES slangc slangc.exe
+                PATHS "${SDK_DIR}/Bin"
+                NO_DEFAULT_PATH
+            )
+            if(SLANGC_EXECUTABLE)
+                break()
+            endif()
+        endif()
+    endforeach()
+endif()
+# Last resort: try system PATH
+if(NOT SLANGC_EXECUTABLE)
+    find_program(SLANGC_EXECUTABLE NAMES slangc slangc.exe)
+endif()
+if(NOT SLANGC_EXECUTABLE)
+    message(FATAL_ERROR "slangc not found. Please ensure Vulkan SDK is installed and slangc is available. VULKAN_SDK: $ENV{VULKAN_SDK}")
+else()
+    message(STATUS "Found slangc: ${SLANGC_EXECUTABLE}")
 endif()
 find_package(OpenGL REQUIRED)
 
@@ -129,13 +159,23 @@ foreach(SHADER_FILE ${SHADER_FILES})
     endif()
 endforeach()
 
-add_custom_target(CompileRayTracingShaders ALL DEPENDS ${RAY_TRACING_SPV})
-add_dependencies(CyberpunkCityDemo CompileRayTracingShaders)
+# Create shader compilation target
+if(RAY_TRACING_SPV)
+    list(LENGTH RAY_TRACING_SPV SHADER_COUNT)
+    add_custom_target(CompileShaders ALL DEPENDS ${RAY_TRACING_SPV})
+    add_dependencies(CyberpunkCityDemo CompileShaders)
+    message(STATUS "Shader compilation configured: ${SHADER_COUNT} shaders will be compiled")
+else()
+    message(WARNING "No shaders found to compile!")
+endif()
 
-# Copy ray tracing SPIR-V files to the executable directory
+# Copy compiled SPIR-V files to the executable directory
+# This depends on shaders being compiled first
 add_custom_command(TARGET CyberpunkCityDemo POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:CyberpunkCityDemo>/shaders
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:CyberpunkCityDemo>/shaders
     COMMENT "Copying compiled shaders to executable directory"
+    DEPENDS ${RAY_TRACING_SPV}
 )
 
 # Copy assets directory to the executable directory

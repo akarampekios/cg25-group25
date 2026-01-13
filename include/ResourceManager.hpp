@@ -95,10 +95,10 @@ public:
     }
 
     void allocateSceneResources(const Scene& scene);
-    void updateSceneResources(const Scene& scene, float time, std::uint32_t frameIdx);
+    void updateSceneResources(const Scene& scene, float time, std::uint32_t frameIdx, glm::vec2 jitterOffset = glm::vec2(0.0f));
     
     // Record TLAS update commands into the provided command buffer (if needed)
-    void recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene& scene, bool initialBuild);
+    void recordTLASUpdate(const vk::CommandBuffer& cmd, const Scene& scene, bool initialBuild, std::uint32_t frameIdx);
 
 private:
     VulkanCore& m_vulkanCore;
@@ -170,20 +170,29 @@ private:
     
     std::vector<glm::mat4> m_cachedCameraViewProj;
     std::vector<bool> m_indirectDrawBuffersInitialized;
+    
+    // TAA: Previous frame matrices for velocity calculation
+    glm::mat4 m_prevViewMatrix{1.0f};
+    glm::mat4 m_prevProjMatrix{1.0f};
+    bool m_firstFrame{true};
 
     std::vector<vk::AccelerationStructureInstanceKHR> m_blasInstances;
-    vk::raii::Buffer m_blasInstancesBuffer = nullptr;
-    vk::raii::DeviceMemory m_blasInstancesMemory = nullptr;
-    void* m_blasInstancesBufferMapped = nullptr;
+
+    // IMPORTANT: TLAS builds/updates must not share instance buffers / scratch buffers across frames in flight.
+    // With multiple frames in flight, sharing these can cause GPU races and VK_ERROR_DEVICE_LOST.
+    std::vector<vk::raii::Buffer> m_blasInstancesBuffers;
+    std::vector<vk::raii::DeviceMemory> m_blasInstancesMemories;
+    std::vector<void*> m_blasInstancesBuffersMapped;
 
     std::vector<vk::raii::Buffer> m_blasBuffers;
     std::vector<vk::raii::DeviceMemory> m_blasMemories;
     std::vector<vk::raii::AccelerationStructureKHR> m_blasHandles;
-    vk::raii::Buffer m_tlasBuffer = nullptr;
-    vk::raii::DeviceMemory m_tlasMemory = nullptr;
-    vk::raii::Buffer m_tlasScratchBuffer = nullptr;
-    vk::raii::DeviceMemory m_tlasScratchMemory = nullptr;
-    vk::raii::AccelerationStructureKHR m_tlas = nullptr;
+
+    std::vector<vk::raii::Buffer> m_tlasBuffers;
+    std::vector<vk::raii::DeviceMemory> m_tlasMemories;
+    std::vector<vk::raii::Buffer> m_tlasScratchBuffers;
+    std::vector<vk::raii::DeviceMemory> m_tlasScratchMemories;
+    std::vector<vk::raii::AccelerationStructureKHR> m_tlasHandles;
 
     void createDescriptorPool();
     void createDescriptorSetLayouts();
@@ -210,8 +219,8 @@ private:
     void createBLASInstances(const Scene& scene);
     void createTLAS();
 
-    void updateUniformBuffer(const Scene& scene, float time, std::uint32_t frameIdx) const;
-    void updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild);
+    void updateUniformBuffer(const Scene& scene, float time, std::uint32_t frameIdx, glm::vec2 jitterOffset);
+    void updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild, std::uint32_t frameIdx);
     void updateInstanceBuffers(const Scene& scene, std::uint32_t frameIdx);
     void updateMaterialBuffers(const Scene& scene, std::uint32_t frameIdx);
     void updateLightBuffers(const Scene& scene, std::uint32_t frameIdx);

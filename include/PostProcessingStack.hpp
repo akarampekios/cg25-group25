@@ -22,13 +22,16 @@ public:
 
     void recordCommandBuffer(const vk::raii::Image& resolvedImage,
                              const vk::raii::ImageView& resolvedImageView,
+                             const vk::raii::ImageView& velocityImageView,  // TAA: velocity buffer
                              const vk::Image& targetImage,
                              const vk::raii::ImageView& targetImageView,
                              vk::raii::CommandBuffer const& cmd,
                              BloomParameters bloomParams,
                              uint32_t frameIndex);
 
-    void updateDescriptorSets(const vk::raii::ImageView& resolvedImageView, uint32_t frameIndex);
+    void updateDescriptorSets(const vk::raii::ImageView& resolvedImageView, 
+                              const vk::raii::ImageView& velocityImageView,  // TAA: velocity buffer
+                              uint32_t frameIndex);
 
 private:
     VulkanCore& m_vulkanCore;
@@ -82,6 +85,27 @@ private:
 
     vk::raii::Sampler m_sampler = nullptr;
     
+    // TAA Resources
+    std::unique_ptr<Shader> m_taaFragmentShader = nullptr;
+    
+    // TAA History buffers (double-buffered: current output becomes next frame's history)
+    std::vector<vk::raii::Image> m_taaHistoryImages;
+    std::vector<vk::raii::DeviceMemory> m_taaHistoryImageMemories;
+    std::vector<vk::raii::ImageView> m_taaHistoryImageViews;
+    
+    // TAA output (anti-aliased result, fed to bloom/composite)
+    std::vector<vk::raii::Image> m_taaOutputImages;
+    std::vector<vk::raii::DeviceMemory> m_taaOutputImageMemories;
+    std::vector<vk::raii::ImageView> m_taaOutputImageViews;
+    
+    vk::raii::DescriptorSetLayout m_taaDescriptorSetLayout = nullptr;
+    std::vector<vk::raii::DescriptorSet> m_taaDescriptorSets;
+    vk::raii::PipelineLayout m_taaPipelineLayout = nullptr;
+    vk::raii::Pipeline m_taaPipeline = nullptr;
+    
+    // Track which history buffer to use (ping-pong)
+    std::uint32_t m_taaHistoryIndex{0};
+    bool m_taaFirstFrame{true};
 
     void createShaderModules();
 
@@ -96,8 +120,12 @@ private:
     void createDescriptorSets();
 
     void createPipelineLayouts();
-
     
+    // TAA: Record TAA resolve pass
+    void recordTAAPass(const vk::raii::CommandBuffer& cmd,
+                       const vk::raii::ImageView& currentColorView,
+                       const vk::raii::ImageView& velocityView,
+                       uint32_t frameIndex);
 
     vk::raii::Pipeline createPostProcessPipeline(const Shader& fragmentShader, 
                                                   vk::raii::PipelineLayout& outPipelineLayout,

@@ -171,10 +171,11 @@ private:
     std::vector<glm::mat4> m_cachedCameraViewProj;
     std::vector<bool> m_indirectDrawBuffersInitialized;
     
-    // TAA: Previous frame matrices for velocity calculation
-    glm::mat4 m_prevViewMatrix{1.0f};
-    glm::mat4 m_prevProjMatrix{1.0f};
-    bool m_firstFrame{true};
+    // TAA: Previous frame matrices for velocity calculation (per-frame to handle multiple frames in flight)
+    // Each frame index stores its own previous matrices to avoid cross-frame interference
+    std::vector<glm::mat4> m_prevViewMatrices;
+    std::vector<glm::mat4> m_prevProjMatrices;
+    std::vector<bool> m_frameInitialized;
 
     std::vector<vk::AccelerationStructureInstanceKHR> m_blasInstances;
 

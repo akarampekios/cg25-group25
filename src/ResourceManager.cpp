@@ -82,7 +82,10 @@ ResourceManager::ResourceManager(VulkanCore& vulkanCore, CommandManager& command
       m_bufferManager{bufferManager},
       m_imageManager{imageManager},
       m_cachedCameraViewProj(MAX_FRAMES_IN_FLIGHT, glm::mat4(0.0f)),
-      m_indirectDrawBuffersInitialized(MAX_FRAMES_IN_FLIGHT, false) {
+      m_indirectDrawBuffersInitialized(MAX_FRAMES_IN_FLIGHT, false),
+      m_prevViewMatrices(MAX_FRAMES_IN_FLIGHT, glm::mat4(1.0f)),
+      m_prevProjMatrices(MAX_FRAMES_IN_FLIGHT, glm::mat4(1.0f)),
+      m_frameInitialized(MAX_FRAMES_IN_FLIGHT, false) {
     createDescriptorPool();
     createDescriptorSetLayouts();
     createTextureSamplers();
@@ -1262,9 +1265,10 @@ void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, 
         proj[2][1] += jitterY;
     }
     
-    // TAA: Get previous frame matrices (or current if first frame)
-    const glm::mat4 prevView = m_firstFrame ? view : m_prevViewMatrix;
-    const glm::mat4 prevProj = m_firstFrame ? scene.camera.getProjection() : m_prevProjMatrix;
+    // TAA: Get previous frame matrices for THIS frame index (or current if first time this index renders)
+    // Using per-frame storage is critical with multiple frames in flight to avoid temporal desync
+    const glm::mat4 prevView = m_frameInitialized[frameIdx] ? m_prevViewMatrices[frameIdx] : view;
+    const glm::mat4 prevProj = m_frameInitialized[frameIdx] ? m_prevProjMatrices[frameIdx] : scene.camera.getProjection();
 
     const UniformBufferObject ubo{
         .view = view,
@@ -1288,10 +1292,11 @@ void ResourceManager::updateUniformBuffer(const Scene& scene, const float time, 
 
     memcpy(m_uniformBuffersMapped[frameIdx], &ubo, sizeof(ubo));
     
-    // TAA: Store current matrices for next frame
-    m_prevViewMatrix = view;
-    m_prevProjMatrix = scene.camera.getProjection();  // Store unjittered projection
-    m_firstFrame = false;
+    // TAA: Store current matrices for next time THIS frame index renders
+    // This ensures proper temporal coherence with multiple frames in flight
+    m_prevViewMatrices[frameIdx] = view;
+    m_prevProjMatrices[frameIdx] = scene.camera.getProjection();  // Store unjittered projection
+    m_frameInitialized[frameIdx] = true;
 }
 
 void ResourceManager::updateTopLevelAccelerationStructures(const Scene& scene, bool initialBuild, std::uint32_t frameIdx) {

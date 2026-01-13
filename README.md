@@ -48,7 +48,16 @@ This project uses a **hybrid rasterization + ray tracing** approach for optimal 
 - **Ambient Occlusion**: Pre-baked into textures during asset creation (loaded from GLTF models)
 - **Indirect Diffuse**: Approximated by sampling skybox texture based on surface normal
 
-todo: add a section about msaa
+## Multisample Anti-Aliasing (MSAA)
+
+The project supports MSAA as an alternative to TAA, automatically selecting the highest available sample count (up to 64x) based on GPU capabilities:
+
+- **Automatic Sample Count**: Queries the GPU for supported framebuffer sample counts and selects the maximum available
+- **Multisampled Render Targets**: Color and depth attachments are created with the selected sample count
+- **Resolve Pass**: Multisampled images are resolved to single-sample images before post-processing
+- **Toggle via Constant**: Set `TAA_ENABLED = false` in `constants.hpp` to use MSAA instead of TAA
+
+MSAA effectively smooths geometric edges but does not address shader aliasing (specular highlights, thin geometry). For scenes with complex lighting, TAA is recommended.
 
 ## Temporal Anti-Aliasing (TAA)
 

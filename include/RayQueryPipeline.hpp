@@ -30,7 +30,7 @@ public:
 
     ~RayQueryPipeline() = default;
 
-    void drawFrame(Scene& scene, float animationTime);
+    void drawFrame(Scene& scene, float animationTime, float deltaTime);
     
     // TAA: Get current frame's jitter offset (in pixels)
     [[nodiscard]] glm::vec2 getJitterOffset() const { return m_jitterOffset; }
@@ -84,10 +84,14 @@ private:
     // TAA: Jitter state
     std::uint32_t m_jitterIndex{0};
     glm::vec2 m_jitterOffset{0.0f, 0.0f};
+    float m_lastDeltaTime{0.0f};
 
     std::vector<vk::raii::Semaphore> m_presentationCompleteSemaphores;
     std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
     std::vector<vk::raii::Fence> m_inFlightFences;
+
+    vk::Extent2D m_renderExtent{0, 0};
+    vk::Extent2D getRenderExtent() const;
 
     void createShaderModules();
     void pickMsaaSamples();

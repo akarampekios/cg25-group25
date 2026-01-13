@@ -24,6 +24,13 @@ struct BloomPushConstant {
     float scale;
 };
 
+struct BloomParameters {
+    float blurStrength{4.0};
+    float exposure{1.0};
+    float threshold{0.5};
+    float scale{2.0};
+};
+
 struct TAAPushConstant {
     glm::vec2 screenSize;
     float blendFactor;

@@ -8,7 +8,9 @@
 #include "SwapChain.hpp"
 #include "ImageManager.hpp"
 #include "BufferManager.hpp"
+#include "SharedTypes.hpp"
 #include "Shader.hpp"
+#include "FSR2Pass.hpp"
 
 class PostProcessingStack {
 public:
@@ -22,12 +24,15 @@ public:
 
     void recordCommandBuffer(const vk::raii::Image& resolvedImage,
                              const vk::raii::ImageView& resolvedImageView,
-                             const vk::raii::ImageView& velocityImageView,  // TAA: velocity buffer
+                             const vk::raii::Image& depthImage, const vk::raii::ImageView& depthImageView,
+                             const vk::raii::Image& velocityImage, const vk::raii::ImageView& velocityImageView,  
                              const vk::Image& targetImage,
                              const vk::raii::ImageView& targetImageView,
                              vk::raii::CommandBuffer const& cmd,
                              BloomParameters bloomParams,
-                             uint32_t frameIndex);
+                             uint32_t frameIndex,
+                             float deltaTime, float nearPlane, float farPlane, float fov, glm::vec2 jitter,
+                             vk::Extent2D renderExtent);
 
     void updateDescriptorSets(const vk::raii::ImageView& resolvedImageView, 
                               const vk::raii::ImageView& velocityImageView,  // TAA: velocity buffer
@@ -85,27 +90,16 @@ private:
 
     vk::raii::Sampler m_sampler = nullptr;
     
-    // TAA Resources
-    std::unique_ptr<Shader> m_taaFragmentShader = nullptr;
+    // FSR 2
+    FSR2Pass m_fsr2Pass;
     
-    // TAA History buffers (double-buffered: current output becomes next frame's history)
-    std::vector<vk::raii::Image> m_taaHistoryImages;
-    std::vector<vk::raii::DeviceMemory> m_taaHistoryImageMemories;
-    std::vector<vk::raii::ImageView> m_taaHistoryImageViews;
+    // Output of FSR 2 (Display Resolution) - replaces TAA output
+    std::vector<vk::raii::Image> m_fsr2OutputImages;
+    std::vector<vk::raii::DeviceMemory> m_fsr2OutputImageMemories;
+    std::vector<vk::raii::ImageView> m_fsr2OutputImageViews;
     
-    // TAA output (anti-aliased result, fed to bloom/composite)
-    std::vector<vk::raii::Image> m_taaOutputImages;
-    std::vector<vk::raii::DeviceMemory> m_taaOutputImageMemories;
-    std::vector<vk::raii::ImageView> m_taaOutputImageViews;
-    
-    vk::raii::DescriptorSetLayout m_taaDescriptorSetLayout = nullptr;
-    std::vector<vk::raii::DescriptorSet> m_taaDescriptorSets;
-    vk::raii::PipelineLayout m_taaPipelineLayout = nullptr;
-    vk::raii::Pipeline m_taaPipeline = nullptr;
-    
-    // Track which history buffer to use (ping-pong)
-    std::uint32_t m_taaHistoryIndex{0};
-    bool m_taaFirstFrame{true};
+    // TAA Resources - REMOVED/DEPRECATED
+    // ... (Old TAA members removed)
 
     void createShaderModules();
 
@@ -121,11 +115,14 @@ private:
 
     void createPipelineLayouts();
     
-    // TAA: Record TAA resolve pass
-    void recordTAAPass(const vk::raii::CommandBuffer& cmd,
-                       const vk::raii::ImageView& currentColorView,
-                       const vk::raii::ImageView& velocityView,
-                       uint32_t frameIndex);
+    // FSR 2 Dispatch
+    void recordFSR2Pass(const vk::raii::CommandBuffer& cmd,
+                       const vk::raii::Image& colorImage, const vk::raii::ImageView& colorView,
+                       const vk::raii::Image& depthImage, const vk::raii::ImageView& depthView,
+                       const vk::raii::Image& velocityImage, const vk::raii::ImageView& velocityView,
+                       uint32_t frameIndex,
+                       float deltaTime, float nearPlane, float farPlane, float fov,
+                       glm::vec2 jitterOffset);
 
     vk::raii::Pipeline createPostProcessPipeline(const Shader& fragmentShader, 
                                                   vk::raii::PipelineLayout& outPipelineLayout,

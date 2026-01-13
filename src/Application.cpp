@@ -167,7 +167,7 @@ void Application::run() {
             animator.animate(loaded->model, loaded->scene, animationTime);
         }
         
-        rayQueryPipeline.drawFrame(loaded->scene, animationTime);
+        rayQueryPipeline.drawFrame(loaded->scene, animationTime, static_cast<float>(deltaTime * 1000.0f)); // Pass deltaTime in milliseconds for FSR2
         
         // FPS Counter (update every second)
         frameCount++;

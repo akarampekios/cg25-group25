@@ -8,8 +8,8 @@
 // Set to true to enable verbose debug output during loading
 constexpr bool VERBOSE_DEBUG_OUTPUT = false;
 
-constexpr int WINDOW_WIDTH = 1920;
-constexpr int WINDOW_HEIGHT = 1080;
+constexpr int WINDOW_WIDTH = 3840;
+constexpr int WINDOW_HEIGHT = 2160;
 constexpr const char* WINDOW_TITLE = "Cyberpunk City Demo";
 
 constexpr std::uint32_t MAX_FRAMES_IN_FLIGHT = 2;
@@ -30,6 +30,9 @@ constexpr bool TAA_ENABLED = true;  // Enable TAA (disables MSAA when true)
 constexpr float TAA_BLEND_FACTOR = 0.2f;  // α: 0.2 = 80% history, 20% current (was 0.1 - increased for faster response)
 constexpr std::uint32_t TAA_JITTER_SEQUENCE_LENGTH = 16;  // Halton sequence length before repeat
 static constexpr vk::Format VELOCITY_BUFFER_FORMAT = vk::Format::eR16G16Sfloat;  // RG16F for motion vectors
+
+// FSR 2 Configuration
+constexpr float FSR2_RENDER_SCALE = 0.5f; // 0.5 = Performance (2.0x) - renders at 1080p, displays at 4K
 
 constexpr float GLTF_DIRECTIONAL_LIGHT_INTENSITY_CONVERSION_FACTOR = 50000.0;
 constexpr float GLTF_POINT_LIGHT_INTENSITY_CONVERSION_FACTOR = 500.0;

@@ -16,6 +16,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Add subdirectories
 add_subdirectory(external/glfw)
 
+# FSR 2 Configuration
+set(FFX_FSR2_API_VK ON CACHE BOOL "" FORCE)
+set(FFX_FSR2_API_DX12 OFF CACHE BOOL "" FORCE)
+set(FSR2_PLATFORM_NAME "x64")
+add_subdirectory(external/fsr2/src/ffx-fsr2-api)
+
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -23,6 +29,8 @@ include_directories(${CMAKE_SOURCE_DIR}/external/glm)
 include_directories(${CMAKE_SOURCE_DIR}/external/tinygltf)
 include_directories(${CMAKE_SOURCE_DIR}/external/miniaudio)
 include_directories(${Vulkan_INCLUDE_DIRS})
+include_directories(${CMAKE_SOURCE_DIR}/external/fsr2/src/ffx-fsr2-api)
+include_directories(${CMAKE_SOURCE_DIR}/external/fsr2/src/ffx-fsr2-api/vk)
 
 # Find packages
 find_package(Vulkan REQUIRED)
@@ -74,7 +82,7 @@ file(GLOB_RECURSE PRECOMPILED_HEADERS "include/pch/*.hpp")
 target_precompile_headers(CyberpunkCityDemo PRIVATE ${PRECOMPILED_HEADERS})
 
 # Link libraries
-target_link_libraries(CyberpunkCityDemo PRIVATE glfw Vulkan::Vulkan)
+target_link_libraries(CyberpunkCityDemo PRIVATE glfw Vulkan::Vulkan ffx_fsr2_api_x64 ffx_fsr2_api_vk_x64)
 
 # Configure dependencies
 target_compile_definitions(CyberpunkCityDemo PRIVATE

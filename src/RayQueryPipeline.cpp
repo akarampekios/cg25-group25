@@ -35,20 +35,25 @@ float RayQueryPipeline::halton(std::uint32_t index, std::uint32_t base) {
     return result;
 }
 
-// TAA: Update jitter offset for current frame
+// TAA/FSR 2: Update jitter offset for current frame
 void RayQueryPipeline::updateJitter() {
-    if constexpr (TAA_ENABLED) {
-        // Halton(2,3) sequence - well-distributed sub-pixel offsets
-        m_jitterIndex = (m_jitterIndex + 1) % TAA_JITTER_SEQUENCE_LENGTH;
-        
-        // Generate jitter in [0, 1] range, then convert to [-0.5, 0.5] pixel offset
-        float jitterX = halton(m_jitterIndex + 1, 2) - 0.5f;
-        float jitterY = halton(m_jitterIndex + 1, 3) - 0.5f;
-        
-        m_jitterOffset = glm::vec2(jitterX, jitterY);
-    } else {
-        m_jitterOffset = glm::vec2(0.0f, 0.0f);
-    }
+    // FSR 2 expects jitter in pixel space (0..1 range)
+    // and it provides its own phase count calculation
+    const int32_t phaseCount = ffxFsr2GetJitterPhaseCount(m_renderExtent.width, m_swapChain.getExtent().width);
+    
+    float jitterX, jitterY;
+    ffxFsr2GetJitterOffset(&jitterX, &jitterY, m_jitterIndex, phaseCount);
+    
+    m_jitterOffset = glm::vec2(jitterX, jitterY);
+    m_jitterIndex = (m_jitterIndex + 1) % phaseCount;
+}
+
+vk::Extent2D RayQueryPipeline::getRenderExtent() const {
+    const auto swapChainExtent = m_swapChain.getExtent();
+    return {
+        static_cast<uint32_t>(std::round(static_cast<float>(swapChainExtent.width) * FSR2_RENDER_SCALE)),
+        static_cast<uint32_t>(std::round(static_cast<float>(swapChainExtent.height) * FSR2_RENDER_SCALE))
+    };
 }
 
 RayQueryPipeline::RayQueryPipeline(VulkanCore& vulkanCore,
@@ -65,6 +70,9 @@ RayQueryPipeline::RayQueryPipeline(VulkanCore& vulkanCore,
       m_imageManager{imageManager},
       m_bufferManager{bufferManager},
       m_postProcessingPipeline{postProcessingPipeline} {
+    
+    m_renderExtent = getRenderExtent();
+    
     createShaderModules();
     pickMsaaSamples();
     createGraphicsPipeline();
@@ -287,9 +295,10 @@ void RayQueryPipeline::createGraphicsPipeline() {
 }
 
 void RayQueryPipeline::createColorResources() {
+    const auto extent = getRenderExtent();
     m_imageManager.createImage(
-        m_swapChain.getExtent().width,
-        m_swapChain.getExtent().height,
+        extent.width,
+        extent.height,
         1,
         m_msaaSamples,
         m_swapChain.getFormat(),
@@ -309,7 +318,7 @@ void RayQueryPipeline::createResolveResources() {
     m_resolveImageMemories.clear();
     m_resolveImageViews.clear();
 
-    const auto extent = m_swapChain.getExtent();
+    const auto extent = getRenderExtent();
     const auto format = m_swapChain.getFormat();
 
     for (std::size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -344,15 +353,16 @@ void RayQueryPipeline::createResolveResources() {
 
 void RayQueryPipeline::createDepthResources() {
     const vk::Format depthFormat = m_vulkanCore.findDepthFormat();
+    const auto extent = getRenderExtent();
 
     m_imageManager.createImage(
-        m_swapChain.getExtent().width,
-        m_swapChain.getExtent().height,
+        extent.width,
+        extent.height,
         1,
         m_msaaSamples,
         depthFormat,
         vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eDepthStencilAttachment,
+        vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
         m_depthImage,
         m_depthImageMemory
@@ -367,7 +377,7 @@ void RayQueryPipeline::createDepthResources() {
 }
 
 void RayQueryPipeline::createVelocityResources() {
-    const auto extent = m_swapChain.getExtent();
+    const auto extent = getRenderExtent();
     
     // Clear any existing resources
     m_velocityImages.clear();
@@ -587,7 +597,7 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
     const vk::RenderingInfo renderingInfo = {
         .renderArea = {
             .offset = {.x = 0, .y = 0},
-            .extent = m_swapChain.getExtent(),
+            .extent = m_renderExtent,
         },
         .layerCount = 1,
         .colorAttachmentCount = static_cast<uint32_t>(colorAttachments.size()),
@@ -599,10 +609,9 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
 
     cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_opaquePipeline);
 
-    const auto swapChainExtent = m_swapChain.getExtent();
-    cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-    cmd.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
-                                    static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
+    cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_renderExtent));
+    cmd.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(m_renderExtent.width),
+                                    static_cast<float>(m_renderExtent.height), 0.0f, 1.0f));
 
     // Bind vertex and index buffers (only need the buffer handles, not memory)
     const auto [vertexBuffer, _] = m_resourceManager.getVertexBuffer();
@@ -675,7 +684,7 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
         vk::ImageAspectFlagBits::eColor
     );
     
-    // TAA: Transition velocity buffer for reading in TAA shader
+    // transition velocity buffer for reading in FSR 2
     m_imageManager.transitionImageLayout(
         m_velocityImages[m_currentFrame],
         cmd,
@@ -684,8 +693,21 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
         vk::AccessFlagBits2::eColorAttachmentWrite,
         vk::AccessFlagBits2::eShaderRead,
         vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits2::eFragmentShader,
+        vk::PipelineStageFlagBits2::eComputeShader, // Transition for Compute (FSR 2)
         vk::ImageAspectFlagBits::eColor
+    );
+    
+    // transition depth buffer for reading in FSR 2
+    m_imageManager.transitionImageLayout(
+        m_depthImage,
+        cmd,
+        vk::ImageLayout::eDepthAttachmentOptimal,
+        vk::ImageLayout::eShaderReadOnlyOptimal,
+        vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+        vk::AccessFlagBits2::eShaderRead,
+        vk::PipelineStageFlagBits2::eLateFragmentTests,
+        vk::PipelineStageFlagBits2::eComputeShader, // Transition for Compute (FSR 2)
+        vk::ImageAspectFlagBits::eDepth
     );
 
     // transition swap chain image
@@ -701,17 +723,16 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
         vk::ImageAspectFlagBits::eColor
         );
 
-    // Post processing pass (now includes TAA)
+    // Post processing pass (includes FSR 2)
     m_postProcessingPipeline.recordCommandBuffer(
-        m_resolveImages[m_currentFrame],
-        m_resolveImageViews[m_currentFrame],
-        m_velocityImageViews[m_currentFrame],  // TAA: pass velocity buffer
-        m_swapChain.getImage(imageIndex),
-        m_swapChain.getImageView(imageIndex),
-        cmd,
-        scene.bloom,
-        m_currentFrame
-    );
+        m_resolveImages[m_currentFrame], m_resolveImageViews[m_currentFrame],
+        m_depthImage, m_depthImageView,
+        m_velocityImages[m_currentFrame], m_velocityImageViews[m_currentFrame],
+        m_swapChain.getImage(imageIndex), m_swapChain.getImageView(imageIndex),
+        cmd, scene.bloom, m_currentFrame, m_lastDeltaTime,
+        scene.camera.znear, scene.camera.zfar, scene.camera.yfov,
+        m_jitterOffset, // Pass jitter to FSR 2
+        m_renderExtent); // Pass render resolution for FSR 2 upscaling
 
     // Transition swap chain image for presentation
     m_imageManager.transitionImageLayout(
@@ -730,7 +751,8 @@ void RayQueryPipeline::recordCommandBuffer(const Scene& scene, const std::uint32
     cmd.end();
 }
 
-void RayQueryPipeline::drawFrame(Scene& scene, float animationTime) {
+void RayQueryPipeline::drawFrame(Scene& scene, float animationTime, float deltaTime) {
+    m_lastDeltaTime = deltaTime; // Store for recordCommandBuffer
     static auto startTime = std::chrono::high_resolution_clock::now();
     const auto currentTime = std::chrono::high_resolution_clock::now();
     const float time = std::chrono::duration<float>(currentTime - startTime).count();

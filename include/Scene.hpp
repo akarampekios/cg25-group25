@@ -47,13 +47,6 @@ struct CameraParameters {
     }
 };
 
-struct BloomParameters {
-    float blurStrength{4.0};
-    float exposure{1.0};
-    float threshold{0.5};
-    float scale{2.0};
-};
-
 struct FogParameters {
     glm::vec3 fogColor{0.0f, 0.11f, 0.11f};
     // current models are large, so distance between camera in objects is also large, 

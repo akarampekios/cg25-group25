@@ -22,7 +22,8 @@ PostProcessingStack::PostProcessingStack(VulkanCore& vulkanCore,
       m_resourceManager(resourceManager),
       m_swapChain(swapChain),
       m_imageManager(imageManager),
-      m_bufferManager(bufferManager) {
+      m_bufferManager(bufferManager),
+      m_fsr2Pass(vulkanCore) {
     createShaderModules();
     createImages();
     createDescriptorPool();
@@ -44,18 +45,10 @@ void PostProcessingStack::createShaderModules() {
     m_compositeFragmentShader = std::make_unique<Shader>(m_vulkanCore.device(), vk::ShaderStageFlagBits::eFragment,
                                                          "shaders/postprocessing/composite.frag.spv");
     
-    // TAA shader
-    if constexpr (TAA_ENABLED) {
-        m_taaFragmentShader = std::make_unique<Shader>(m_vulkanCore.device(), vk::ShaderStageFlagBits::eFragment,
-                                                       "shaders/postprocessing/taa.frag.spv");
-    }
 }
 
 void PostProcessingStack::createPipelines() {
-    // TAA pipeline (before HDR transfer, operates on linear color)
-    if constexpr (TAA_ENABLED) {
-        m_taaPipeline = createPostProcessPipeline(*m_taaFragmentShader, m_taaPipelineLayout, POST_PROCESSING_IMAGE_FORMAT);
-    }
+    // TAA pipeline removed.
     
     m_hdrTransferPipeline = createPostProcessPipeline(*m_hdrFragmentShader, m_hdrTransferPipelineLayout, POST_PROCESSING_IMAGE_FORMAT);
     m_brightPassPipeline = createPostProcessPipeline(*m_brightPassFragmentShader, m_brightPassPipelineLayout, POST_PROCESSING_IMAGE_FORMAT);
@@ -68,59 +61,33 @@ void PostProcessingStack::createImages() {
     m_sampler = m_imageManager.createPostProcessingSampler();
 
     for (std::size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        // TAA: History buffer (stores previous frame's anti-aliased output)
-        if constexpr (TAA_ENABLED) {
-            vk::raii::Image taaHistoryImage{nullptr};
-            vk::raii::DeviceMemory taaHistoryMemory{nullptr};
-            
-            m_imageManager.createImage(
-                extent.width,
-                extent.height,
-                1,
-                vk::SampleCountFlagBits::e1,
-                POST_PROCESSING_IMAGE_FORMAT,
-                vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
-                vk::MemoryPropertyFlagBits::eDeviceLocal,
-                taaHistoryImage,
-                taaHistoryMemory);
-            
-            auto taaHistoryView = m_imageManager.createImageView(
-                taaHistoryImage,
-                POST_PROCESSING_IMAGE_FORMAT,
-                vk::ImageAspectFlagBits::eColor,
-                1);
-            
-            m_taaHistoryImages.emplace_back(std::move(taaHistoryImage));
-            m_taaHistoryImageMemories.emplace_back(std::move(taaHistoryMemory));
-            m_taaHistoryImageViews.emplace_back(std::move(taaHistoryView));
-            
-            // TAA: Output buffer (current frame's anti-aliased result)
-            vk::raii::Image taaOutputImage{nullptr};
-            vk::raii::DeviceMemory taaOutputMemory{nullptr};
-            
-            m_imageManager.createImage(
-                extent.width,
-                extent.height,
-                1,
-                vk::SampleCountFlagBits::e1,
-                POST_PROCESSING_IMAGE_FORMAT,
-                vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc,
-                vk::MemoryPropertyFlagBits::eDeviceLocal,
-                taaOutputImage,
-                taaOutputMemory);
-            
-            auto taaOutputView = m_imageManager.createImageView(
-                taaOutputImage,
-                POST_PROCESSING_IMAGE_FORMAT,
-                vk::ImageAspectFlagBits::eColor,
-                1);
-            
-            m_taaOutputImages.emplace_back(std::move(taaOutputImage));
-            m_taaOutputImageMemories.emplace_back(std::move(taaOutputMemory));
-            m_taaOutputImageViews.emplace_back(std::move(taaOutputView));
-        }
+        // FSR 2 Output Images
+        vk::raii::Image fsr2OutputImage{nullptr};
+        vk::raii::DeviceMemory fsr2OutputMemory{nullptr};
+
+        // FSR 2 requires UNORDERED_ACCESS (Storage) and SAMPLED (for Bloom/Composite) 
+        // We also use it as TransferSrc/Dst for transitions if needed
+        m_imageManager.createImage(
+            extent.width,
+            extent.height,
+            1,
+            vk::SampleCountFlagBits::e1,
+            POST_PROCESSING_IMAGE_FORMAT,
+            vk::ImageTiling::eOptimal,
+            vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
+            vk::MemoryPropertyFlagBits::eDeviceLocal,
+            fsr2OutputImage,
+            fsr2OutputMemory);
+
+        auto fsr2OutputView = m_imageManager.createImageView(
+            fsr2OutputImage,
+            POST_PROCESSING_IMAGE_FORMAT,
+            vk::ImageAspectFlagBits::eColor,
+            1);
+
+        m_fsr2OutputImages.emplace_back(std::move(fsr2OutputImage));
+        m_fsr2OutputImageMemories.emplace_back(std::move(fsr2OutputMemory));
+        m_fsr2OutputImageViews.emplace_back(std::move(fsr2OutputView));
         
         // HDR Image - receives output from HDR transfer pass
         vk::raii::Image hdrImage{nullptr};
@@ -208,20 +175,18 @@ void PostProcessingStack::createImages() {
 }
 
 void PostProcessingStack::createDescriptorPool() {
-    // TAA needs 3 samplers per frame: current color, history, velocity
-    const std::uint32_t taaDescriptorCount = TAA_ENABLED ? MAX_FRAMES_IN_FLIGHT * 3 : 0;
-    const std::uint32_t taaSetsCount = TAA_ENABLED ? MAX_FRAMES_IN_FLIGHT : 0;
+    // TAA descriptor counts removed.
     
     std::array poolSizes = {
         vk::DescriptorPoolSize{
             .type = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 4 + POST_PROCESSING_BLUR_STAGES + 3 + taaDescriptorCount,
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 4 + POST_PROCESSING_BLUR_STAGES + 3, // + taaDescriptorCount,
         },
     };
 
     const vk::DescriptorPoolCreateInfo poolCreateInfo{
         .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-        .maxSets = MAX_FRAMES_IN_FLIGHT * 5 + POST_PROCESSING_BLUR_STAGES + 2 + taaSetsCount,
+        .maxSets = MAX_FRAMES_IN_FLIGHT * 5 + POST_PROCESSING_BLUR_STAGES + 2, // + taaSetsCount,
         .poolSizeCount = static_cast<std::uint32_t>(poolSizes.size()),
         .pPoolSizes = poolSizes.data(),
     };
@@ -318,47 +283,7 @@ void PostProcessingStack::createDescriptorSetLayouts() {
         compositeLayoutCreateInfo
         );
     
-    // TAA descriptor set layout
-    if constexpr (TAA_ENABLED) {
-        // Binding 0: Current frame color
-        constexpr vk::DescriptorSetLayoutBinding taaCurrentColorBinding{
-            .binding = 0,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1,
-            .stageFlags = vk::ShaderStageFlagBits::eFragment,
-            .pImmutableSamplers = nullptr,
-        };
-        
-        // Binding 1: History buffer
-        constexpr vk::DescriptorSetLayoutBinding taaHistoryBinding{
-            .binding = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1,
-            .stageFlags = vk::ShaderStageFlagBits::eFragment,
-            .pImmutableSamplers = nullptr,
-        };
-        
-        // Binding 2: Velocity buffer
-        constexpr vk::DescriptorSetLayoutBinding taaVelocityBinding{
-            .binding = 2,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1,
-            .stageFlags = vk::ShaderStageFlagBits::eFragment,
-            .pImmutableSamplers = nullptr,
-        };
-        
-        std::array taaBindings = {taaCurrentColorBinding, taaHistoryBinding, taaVelocityBinding};
-        
-        const vk::DescriptorSetLayoutCreateInfo taaLayoutCreateInfo{
-            .bindingCount = static_cast<std::uint32_t>(taaBindings.size()),
-            .pBindings = taaBindings.data(),
-        };
-        
-        m_taaDescriptorSetLayout = vk::raii::DescriptorSetLayout(
-            m_vulkanCore.device(),
-            taaLayoutCreateInfo
-        );
-    }
+    // TAA descriptor set layout removed.
 }
 
 void PostProcessingStack::createDescriptorSets() {
@@ -503,18 +428,7 @@ void PostProcessingStack::createDescriptorSets() {
         m_vulkanCore.device().updateDescriptorSets(writeDescriptors, {});
     }
     
-    // TAA descriptor sets (will be updated per-frame in updateDescriptorSets)
-    if constexpr (TAA_ENABLED) {
-        std::vector<vk::DescriptorSetLayout> taaLayouts(MAX_FRAMES_IN_FLIGHT, *m_taaDescriptorSetLayout);
-        
-        const vk::DescriptorSetAllocateInfo taaDescriptorSetAllocInfo{
-            .descriptorPool = m_descriptorPool,
-            .descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
-            .pSetLayouts = taaLayouts.data(),
-        };
-        
-        m_taaDescriptorSets = m_vulkanCore.device().allocateDescriptorSets(taaDescriptorSetAllocInfo);
-    }
+    // TAA descriptor sets removed.
 }
 
 void PostProcessingStack::createPipelineLayouts() {
@@ -558,23 +472,7 @@ void PostProcessingStack::createPipelineLayouts() {
 
     m_compositePipelineLayout = vk::raii::PipelineLayout(m_vulkanCore.device(), compositeInfo);
     
-    // TAA pipeline layout
-    if constexpr (TAA_ENABLED) {
-        constexpr vk::PushConstantRange taaPushConstantRange{
-            .stageFlags = vk::ShaderStageFlagBits::eFragment,
-            .offset = 0,
-            .size = sizeof(TAAPushConstant),
-        };
-        
-        const vk::PipelineLayoutCreateInfo taaInfo{
-            .setLayoutCount = 1,
-            .pSetLayouts = &*m_taaDescriptorSetLayout,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &taaPushConstantRange,
-        };
-        
-        m_taaPipelineLayout = vk::raii::PipelineLayout(m_vulkanCore.device(), taaInfo);
-    }
+    // TAA pipeline layout removed.
 }
 
 
@@ -678,66 +576,35 @@ void PostProcessingStack::updateDescriptorSets(const vk::raii::ImageView& resolv
     // so we declare them at function scope
     
     // TAA descriptor infos (only used when TAA_ENABLED)
-    vk::DescriptorImageInfo taaCurrentInfo{};
-    vk::DescriptorImageInfo taaHistoryInfo{};
-    vk::DescriptorImageInfo taaVelocityInfo{};
+    // vk::DescriptorImageInfo taaCurrentInfo{};
+    // vk::DescriptorImageInfo taaHistoryInfo{};
+    // vk::DescriptorImageInfo taaVelocityInfo{};
     
     // TAA descriptor set update
-    if constexpr (TAA_ENABLED) {
-        // Current color (from scene render)
-        taaCurrentInfo = {
-            .sampler = m_sampler,
-            .imageView = resolvedImageView,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        };
+    // if constexpr (TAA_ENABLED) {
+    //     // Current color (from scene render)
+    //     taaCurrentInfo = {
+    //         .sampler = m_sampler,
+    //         .imageView = resolvedImageView,
+    //         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+    //     };
         
-        // History buffer (previous frame's TAA output, or current if first frame)
-        taaHistoryInfo = {
-            .sampler = m_sampler,
-            .imageView = m_taaFirstFrame ? *resolvedImageView : *m_taaHistoryImageViews[frameIndex],
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        };
+    //     // History buffer (previous frame's TAA output, or current if first frame)
+    //     taaHistoryInfo = {
+    //         .sampler = m_sampler,
+    //         .imageView = m_taaFirstFrame ? *resolvedImageView : *m_taaHistoryImageViews[frameIndex],
+    //         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+    //     };
         
-        // Velocity buffer
-        taaVelocityInfo = {
-            .sampler = m_sampler,
-            .imageView = velocityImageView,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        };
-        
-        descriptorWrites.emplace_back(vk::WriteDescriptorSet{
-            .dstSet = m_taaDescriptorSets[frameIndex],
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &taaCurrentInfo,
-        });
-        
-        descriptorWrites.emplace_back(vk::WriteDescriptorSet{
-            .dstSet = m_taaDescriptorSets[frameIndex],
-            .dstBinding = 1,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &taaHistoryInfo,
-        });
-        
-        descriptorWrites.emplace_back(vk::WriteDescriptorSet{
-            .dstSet = m_taaDescriptorSets[frameIndex],
-            .dstBinding = 2,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &taaVelocityInfo,
-        });
-    }
+    //     // Velocity buffer
+    //     taaVelocityInfo = {
+    // HDR transfer and bright pass descriptor set updates...
 
     // Update HDR transfer descriptor set
-    // When TAA is enabled, HDR transfer reads from TAA output instead of resolved image
+    // Use FSR 2 output image
     const vk::DescriptorImageInfo hdrTransferInfo{
         .sampler = m_sampler,
-        .imageView = TAA_ENABLED ? *m_taaOutputImageViews[frameIndex] : *resolvedImageView,
+        .imageView = *m_fsr2OutputImageViews[frameIndex],
         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
     };
 
@@ -755,7 +622,7 @@ void PostProcessingStack::updateDescriptorSets(const vk::raii::ImageView& resolv
     // Update bright pass descriptor set
     const vk::DescriptorImageInfo brightInfo{
         .sampler = m_sampler,
-        .imageView = TAA_ENABLED ? *m_taaOutputImageViews[frameIndex] : *resolvedImageView,
+        .imageView = *m_fsr2OutputImageViews[frameIndex],
         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
     };
 
@@ -774,92 +641,48 @@ void PostProcessingStack::updateDescriptorSets(const vk::raii::ImageView& resolv
 
 void PostProcessingStack::recordCommandBuffer(const vk::raii::Image& resolvedImage,
                                               const vk::raii::ImageView& resolvedImageView,
-                                              const vk::raii::ImageView& velocityImageView,
+                                              const vk::raii::Image& depthImage, const vk::raii::ImageView& depthImageView,
+                                              const vk::raii::Image& velocityImage, const vk::raii::ImageView& velocityImageView,
                                               const vk::Image& targetImage,
                                               const vk::raii::ImageView& targetImageView,
                                               vk::raii::CommandBuffer const& cmd,
                                               BloomParameters bloomParams,
-                                              uint32_t frameIndex) {
+                                              uint32_t frameIndex,
+                                              float deltaTime, float nearPlane, float farPlane, float fov, glm::vec2 jitter,
+                                              vk::Extent2D renderExtent) {
 
     const auto extent = m_swapChain.getExtent();
 
-    // TAA Pass (before HDR transfer)
-    if constexpr (TAA_ENABLED) {
-        // Transition TAA output image for rendering
-        m_imageManager.transitionImageLayout(
-            m_taaOutputImages[frameIndex],
-            cmd,
-            vk::ImageLayout::eUndefined,
-            vk::ImageLayout::eColorAttachmentOptimal,
-            {},
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eTopOfPipe,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::ImageAspectFlagBits::eColor
-        );
-        
-        // Transition history image for reading (if not first frame)
-        if (!m_taaFirstFrame) {
-            m_imageManager.transitionImageLayout(
-                m_taaHistoryImages[frameIndex],
-                cmd,
-                vk::ImageLayout::eTransferDstOptimal,  // From previous copy
-                vk::ImageLayout::eShaderReadOnlyOptimal,
-                vk::AccessFlagBits2::eTransferWrite,
-                vk::AccessFlagBits2::eShaderRead,
-                vk::PipelineStageFlagBits2::eTransfer,
-                vk::PipelineStageFlagBits2::eFragmentShader,
-                vk::ImageAspectFlagBits::eColor
-            );
-        }
-        
-        // TAA resolve pass
-        const vk::RenderingAttachmentInfo taaColorAttachment = {
-            .imageView = *m_taaOutputImageViews[frameIndex],
-            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .loadOp = vk::AttachmentLoadOp::eClear,
-            .storeOp = vk::AttachmentStoreOp::eStore,
-            .clearValue = vk::ClearColorValue(0.0F, 0.0F, 0.0F, 1.0F)
-        };
-        
-        const vk::RenderingInfo taaRenderingInfo = {
-            .renderArea = {.offset = {.x = 0, .y = 0}, .extent = extent},
-            .layerCount = 1,
-            .colorAttachmentCount = 1,
-            .pColorAttachments = &taaColorAttachment,
-        };
-        
-        TAAPushConstant taaPushConstant{
-            .screenSize = glm::vec2(static_cast<float>(extent.width), static_cast<float>(extent.height)),
-            .blendFactor = m_taaFirstFrame ? 1.0f : TAA_BLEND_FACTOR,  // First frame: 100% current
-            ._padding = 0.0f,
-        };
-        
-        cmd.beginRendering(taaRenderingInfo);
-        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_taaPipeline);
-        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), extent));
-        cmd.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(extent.width),
-                                        static_cast<float>(extent.height), 0.0f, 1.0f));
-        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_taaPipelineLayout, 0, *m_taaDescriptorSets[frameIndex], {});
-        cmd.pushConstants<TAAPushConstant>(*m_taaPipelineLayout, vk::ShaderStageFlagBits::eFragment, 0, taaPushConstant);
-        cmd.draw(3, 1, 0, 0);
-        cmd.endRendering();
-        
-        // Transition TAA output for reading by subsequent passes
-        m_imageManager.transitionImageLayout(
-            m_taaOutputImages[frameIndex],
-            cmd,
-            vk::ImageLayout::eColorAttachmentOptimal,
-            vk::ImageLayout::eShaderReadOnlyOptimal,
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::AccessFlagBits2::eShaderRead,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eFragmentShader,
-            vk::ImageAspectFlagBits::eColor
-        );
-        
-        m_taaFirstFrame = false;
-    }
+    // FSR 2 Pass
+    
+    // Resize FSR 2 context if needed - render resolution is lower than display resolution
+    // renderExtent = render resolution (e.g. 67% of display for Quality mode)
+    // extent = display resolution (swapchain size)
+    m_fsr2Pass.onResize(renderExtent.width, renderExtent.height, extent.width, extent.height);
+    
+    // FSR 2 Output image needs to be in General layout for Compute Write
+    // FSR 2 usually handles internal transitions but we should provide it in a usable state if needed
+    // Assuming FSR 2 library handles internal barriers for its resources.
+    
+    // Call FSR 2
+    recordFSR2Pass(cmd, resolvedImage, resolvedImageView, 
+                   depthImage, depthImageView, 
+                   velocityImage, velocityImageView, 
+                   frameIndex, deltaTime, nearPlane, farPlane, fov, jitter);
+                   
+    // Transition FSR 2 Output to Shader Read for subsequent passes (HDR/Bloom)
+    // FSR 2 dispatch leaves output in UNORDERED_ACCESS state usually.
+    m_imageManager.transitionImageLayout(
+        m_fsr2OutputImages[frameIndex],
+        cmd,
+        vk::ImageLayout::eUndefined, // Don't care previous
+        vk::ImageLayout::eShaderReadOnlyOptimal,
+        vk::AccessFlagBits2::eShaderWrite, // Compute write
+        vk::AccessFlagBits2::eShaderRead,
+        vk::PipelineStageFlagBits2::eComputeShader,
+        vk::PipelineStageFlagBits2::eFragmentShader,
+        vk::ImageAspectFlagBits::eColor
+    );
 
     // Note: On first frame, images transition from Undefined. On subsequent frames,
     // they're already in the correct layout. We use CLEAR load op which makes
@@ -1109,59 +932,25 @@ void PostProcessingStack::recordCommandBuffer(const vk::raii::Image& resolvedIma
     cmd.draw(3, 1, 0, 0);
     cmd.endRendering();
     
-    // TAA: Copy current TAA output to history buffer for next frame
-    if constexpr (TAA_ENABLED) {
-        // Transition TAA output to transfer source
-        m_imageManager.transitionImageLayout(
-            m_taaOutputImages[frameIndex],
-            cmd,
-            vk::ImageLayout::eShaderReadOnlyOptimal,
-            vk::ImageLayout::eTransferSrcOptimal,
-            vk::AccessFlagBits2::eShaderRead,
-            vk::AccessFlagBits2::eTransferRead,
-            vk::PipelineStageFlagBits2::eFragmentShader,
-            vk::PipelineStageFlagBits2::eTransfer,
-            vk::ImageAspectFlagBits::eColor
-        );
-        
-        // Transition history buffer to transfer destination
-        m_imageManager.transitionImageLayout(
-            m_taaHistoryImages[frameIndex],
-            cmd,
-            vk::ImageLayout::eUndefined,  // Don't care about previous contents
-            vk::ImageLayout::eTransferDstOptimal,
-            {},
-            vk::AccessFlagBits2::eTransferWrite,
-            vk::PipelineStageFlagBits2::eTopOfPipe,
-            vk::PipelineStageFlagBits2::eTransfer,
-            vk::ImageAspectFlagBits::eColor
-        );
-        
-        // Copy TAA output to history
-        vk::ImageCopy copyRegion{
-            .srcSubresource = {
-                .aspectMask = vk::ImageAspectFlagBits::eColor,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-            .srcOffset = {0, 0, 0},
-            .dstSubresource = {
-                .aspectMask = vk::ImageAspectFlagBits::eColor,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-            .dstOffset = {0, 0, 0},
-            .extent = {extent.width, extent.height, 1},
-        };
-        
-        cmd.copyImage(
-            *m_taaOutputImages[frameIndex],
-            vk::ImageLayout::eTransferSrcOptimal,
-            *m_taaHistoryImages[frameIndex],
-            vk::ImageLayout::eTransferDstOptimal,
-            copyRegion
-        );
-    }
+    // TAA: Copy current TAA output to history buffer for next frame removed.
+}
+
+void PostProcessingStack::recordFSR2Pass(const vk::raii::CommandBuffer& cmd,
+                                       const vk::raii::Image& colorImage, const vk::raii::ImageView& colorView,
+                                       const vk::raii::Image& depthImage, const vk::raii::ImageView& depthView,
+                                       const vk::raii::Image& velocityImage, const vk::raii::ImageView& velocityView,
+                                       uint32_t frameIndex,
+                                       float deltaTime, float nearPlane, float farPlane, float fov, glm::vec2 jitterOffset) {
+    
+    m_fsr2Pass.dispatch(cmd,
+                        colorImage, colorView,
+                        depthImage, depthView,
+                        velocityImage, velocityView,
+                        nullptr, // Exposure
+                        m_fsr2OutputImages[frameIndex], m_fsr2OutputImageViews[frameIndex],
+                        nullptr, // Reactive mask
+                        nullptr, // Composition mask
+                        deltaTime,
+                        nearPlane, farPlane, fov,
+                        jitterOffset);
 }

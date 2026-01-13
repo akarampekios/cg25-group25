@@ -158,7 +158,7 @@ void Application::run() {
         }
         m_fKeyPressed = fKeyDown;
 
-        const float animationTime = static_cast<float>(currentTime - startTime) * 0.5f; // Quarter speed (half of previous half speed)
+        const float animationTime = static_cast<float>(currentTime - startTime);
         
         if (m_useFreeCam) {
             m_freeCamera.update(m_window, static_cast<float>(deltaTime));

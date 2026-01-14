@@ -103,6 +103,7 @@ FragmentOutput main(
         IN.inWorldPos,
         V,
         shadingNormal,
+        N,  // Geometric normal for reflections
         enableReflections
     );
 

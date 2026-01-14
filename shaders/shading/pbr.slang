@@ -17,9 +17,13 @@ public float3 shadeFragment(
     LightData lightData,
     float3 worldPos,
     float3 V,
-    float3 N,
+    float3 shadingNormal,
+    float3 geometricNormal,
     bool enableReflections = true
 ) {
+    // Use shading normal (normal-mapped) for direct lighting
+    // Use geometric normal for reflection direction to avoid artifacts
+    float3 N = shadingNormal;
     float3 directionalLight = computeDirectionalLightRadiance(
         sceneData.scene.directionalLight,
         surfaceParams,
@@ -65,7 +69,7 @@ public float3 shadeFragment(
         surfaceParams,
         worldPos,
         V,
-        N,
+        geometricNormal,
         enableReflections
     );
 

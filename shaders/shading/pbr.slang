@@ -402,7 +402,7 @@ float3 computePointLightRadiance(
 
         // OPTIMIZATION: Only trace shadow rays if the light contribution is significant
         // AND the light casts shadows AND we're tracing rays
-        if (traceRays && light.castsShadows != 0 && attenuation > 0.01) {
+        if (traceRays && light.castsShadows != 0 && attenuation > 0.001) {
             float shadow = calculateShadow(tlas, fragmentWorldPosition, L, distance, sceneData, materialData);
             result *= shadow;
         }

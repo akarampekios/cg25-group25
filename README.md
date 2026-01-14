@@ -2,6 +2,8 @@
 
 A real-time rendering demo showcasing ray tracing and volumetric lighting effects in a cyberpunk city environment.
 
+![](./resources/screenshot.png)
+
 ## Features
 
 - **Ray-traced reflections \[Vlad\]** using Vulkan RTX

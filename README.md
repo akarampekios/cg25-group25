@@ -4,6 +4,11 @@ A real-time rendering demo showcasing ray tracing and volumetric lighting effect
 
 ![](./resources/screenshot.png)
 
+https://github.com/user-attachments/assets/ece28245-690e-407c-9592-f7dec458ad84
+
+[Download a Full Resolution Video](https://drive.google.com/file/d/19ELZMi1IVc7AFnb4Un6F_XUJ8iiU_Z33/view?usp=drive_link)
+
+
 ## Features
 
 - **Ray-traced reflections \[Vlad\]** using Vulkan RTX

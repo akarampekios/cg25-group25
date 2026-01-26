@@ -672,7 +672,7 @@ void ResourceManager::createSkyboxImage(const Scene& scene) {
     
     // Skybox texture: limit mip levels (keep original format - may be HDR 16-bit)
     texture.mipLevels = 1;
-    texture.format = vk::Format::eR16G16B16A16Unorm;
+    texture.format = vk::Format::eR8G8B8A8Srgb;
 
     m_imageManager.createImageFromTexture(
         texture,
